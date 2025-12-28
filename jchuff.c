@@ -71,6 +71,10 @@ typedef bit_buf_type simd_bit_buf_type;
 #endif
 #define SIMD_BIT_BUF_SIZE  (sizeof(simd_bit_buf_type) * 8)
 
+/* Huffman coding constants */
+#define HUFFMAN_ALPHABET_SIZE  257  /* 256 symbols + 1 pseudo-symbol */
+#define AC_RUN_LENGTH_16_CODE  0xF0 /* Run of 16 zeros (ZRL) */
+
 typedef struct {
   union {
     bit_buf_type c;
@@ -175,17 +179,17 @@ start_pass_huff(j_compress_ptr cinfo, boolean gather_statistics)
       if (actbl < 0 || actbl >= NUM_HUFF_TBLS)
         ERREXIT1(cinfo, JERR_NO_HUFF_TABLE, actbl);
       /* Allocate and zero the statistics tables */
-      /* Note that jpeg_gen_optimal_table expects 257 entries in each table! */
+      /* Note that jpeg_gen_optimal_table expects HUFFMAN_ALPHABET_SIZE entries in each table! */
       if (entropy->dc_count_ptrs[dctbl] == NULL)
         entropy->dc_count_ptrs[dctbl] = (long *)
           (*cinfo->mem->alloc_small) ((j_common_ptr)cinfo, JPOOL_IMAGE,
-                                      257 * sizeof(long));
-      memset(entropy->dc_count_ptrs[dctbl], 0, 257 * sizeof(long));
+                                      HUFFMAN_ALPHABET_SIZE * sizeof(long));
+      memset(entropy->dc_count_ptrs[dctbl], 0, HUFFMAN_ALPHABET_SIZE * sizeof(long));
       if (entropy->ac_count_ptrs[actbl] == NULL)
         entropy->ac_count_ptrs[actbl] = (long *)
           (*cinfo->mem->alloc_small) ((j_common_ptr)cinfo, JPOOL_IMAGE,
-                                      257 * sizeof(long));
-      memset(entropy->ac_count_ptrs[actbl], 0, 257 * sizeof(long));
+                                      HUFFMAN_ALPHABET_SIZE * sizeof(long));
+      memset(entropy->ac_count_ptrs[actbl], 0, HUFFMAN_ALPHABET_SIZE * sizeof(long));
 #endif
     } else {
       /* Compute derived values for Huffman tables */
@@ -235,8 +239,8 @@ jpeg_make_c_derived_tbl(j_compress_ptr cinfo, boolean isDC, int tblno,
   JHUFF_TBL *htbl;
   c_derived_tbl *dtbl;
   int p, i, l, lastp, si, maxsymbol;
-  char huffsize[257];
-  unsigned int huffcode[257];
+  char huffsize[HUFFMAN_ALPHABET_SIZE];
+  unsigned int huffcode[HUFFMAN_ALPHABET_SIZE];
   unsigned int code;
 
   /* Note that huffsize[] and huffcode[] are filled in code-length order,
@@ -622,10 +626,10 @@ encode_one_block(working_state *state, JCOEFPTR block, int last_dc_val,
     /* Check for out-of-range coefficient values */ \
     if (nbits > max_coef_bits) \
       ERREXIT(state->cinfo, JERR_BAD_DCT_COEF); \
-    /* if run length > 15, must emit special run-length-16 codes (0xF0) */ \
+    /* if run length > 15, must emit special run-length-16 codes (ZRL) */ \
     while (r >= 16 * 16) { \
       r -= 16 * 16; \
-      PUT_BITS(actbl->ehufco[0xf0], actbl->ehufsi[0xf0]) \
+      PUT_BITS(actbl->ehufco[AC_RUN_LENGTH_16_CODE], actbl->ehufsi[AC_RUN_LENGTH_16_CODE]) \
     } \
     /* Emit Huffman symbol for run length / number of bits */ \
     r += nbits; \
@@ -847,9 +851,9 @@ htest_one_block(j_compress_ptr cinfo, JCOEFPTR block, int last_dc_val,
     if ((temp = block[jpeg_natural_order[k]]) == 0) {
       r++;
     } else {
-      /* if run length > 15, must emit special run-length-16 codes (0xF0) */
+      /* if run length > 15, must emit special run-length-16 codes (ZRL) */
       while (r > 15) {
-        ac_counts[0xF0]++;
+        ac_counts[AC_RUN_LENGTH_16_CODE]++;
         r -= 16;
       }
 
@@ -950,10 +954,10 @@ jpeg_gen_optimal_table(j_compress_ptr cinfo, JHUFF_TBL *htbl, long freq[])
 #define MAX_CLEN  32            /* assumed maximum initial code length */
   UINT8 bits[MAX_CLEN + 1];     /* bits[k] = # of symbols with code length k */
   int bit_pos[MAX_CLEN + 1];    /* # of symbols with smaller code length */
-  int codesize[257];            /* codesize[k] = code length of symbol k */
-  int nz_index[257];            /* index of nonzero symbol in the original freq
-                                   array */
-  int others[257];              /* next symbol in current branch of tree */
+  int codesize[HUFFMAN_ALPHABET_SIZE];  /* codesize[k] = code length of symbol k */
+  int nz_index[HUFFMAN_ALPHABET_SIZE];  /* index of nonzero symbol in the original freq
+                                           array */
+  int others[HUFFMAN_ALPHABET_SIZE];    /* next symbol in current branch of tree */
   int c1, c2;
   int p, i, j;
   int num_nz_symbols;
@@ -963,7 +967,7 @@ jpeg_gen_optimal_table(j_compress_ptr cinfo, JHUFF_TBL *htbl, long freq[])
 
   memset(bits, 0, sizeof(bits));
   memset(codesize, 0, sizeof(codesize));
-  for (i = 0; i < 257; i++)
+  for (i = 0; i < HUFFMAN_ALPHABET_SIZE; i++)
     others[i] = -1;             /* init links to empty */
 
   freq[256] = 1;                /* make sure 256 has a nonzero count */
@@ -976,7 +980,7 @@ jpeg_gen_optimal_table(j_compress_ptr cinfo, JHUFF_TBL *htbl, long freq[])
    * smallest.
    */
   num_nz_symbols = 0;
-  for (i = 0; i < 257; i++) {
+  for (i = 0; i < HUFFMAN_ALPHABET_SIZE; i++) {
     if (freq[i]) {
       nz_index[num_nz_symbols] = i;
       freq[num_nz_symbols] = freq[i];

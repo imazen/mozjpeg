@@ -926,12 +926,33 @@ static const float jpeg_lambda_weights_csf_luma[64] = {
 };
 
 #define DC_TRELLIS_MAX_CANDIDATES 9
+#define COST_INFINITY 1e38f  /* Large cost value for unreachable states */
 
 LOCAL(int) get_num_dc_trellis_candidates(int dc_quantval) {
   /* Higher qualities can tolerate higher DC distortion */
   return MIN(DC_TRELLIS_MAX_CANDIDATES, (2 + 60 / dc_quantval)|1);
 }
 
+/*
+ * Trellis quantization for Huffman-coded JPEG.
+ *
+ * This function performs rate-distortion optimal quantization using
+ * dynamic programming (trellis optimization). It finds the coefficient
+ * values that minimize distortion for a given bit budget.
+ *
+ * The trellis explores multiple quantization candidates for each coefficient
+ * and finds the globally optimal path through them using the Viterbi algorithm.
+ *
+ * Parameters:
+ *   dctbl, actbl  - DC and AC Huffman tables (for rate estimation)
+ *   coef_blocks   - Output: quantized coefficients
+ *   src           - Input: DCT coefficients (scaled by 8)
+ *   num_blocks    - Number of 8x8 blocks to process
+ *   qtbl          - Quantization table
+ *   norm_src/coef - Normalization factors for distortion calculation
+ *   last_dc_val   - Previous DC value (for differential coding)
+ *   coef_blocks_above, src_above - For DC prediction across rows
+ */
 #if BITS_IN_JSAMPLE == 8
 GLOBAL(void)
 quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actbl, JBLOCKROW coef_blocks, JBLOCKROW src, JDIMENSION num_blocks,
@@ -1041,8 +1062,13 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
     accumulated_zero_dist[Ss-1] = 0.0;
     accumulated_cost[Ss-1] = 0.0;
 
-    /* Do DC coefficient */
+    /* ===== DC Coefficient Processing =====
+     * The DC coefficient requires special handling because it uses
+     * differential coding (DPCM) across blocks.
+     */
     if (cinfo->master->trellis_quant_dc) {
+      /* Extract sign using arithmetic right shift (2's complement):
+       * positive values → 0, negative values → -1 (all 1s) */
       int sign = src[bi][0] >> 31;
       int x = abs(src[bi][0]);
       int q = 8 * qtbl->quantval[0];
@@ -1117,7 +1143,12 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
       }
     }
 
-    /* Do AC coefficients */
+    /* ===== AC Coefficient Processing =====
+     * Process AC coefficients in zig-zag order. For each position, we
+     * evaluate multiple candidate values and track the optimal path
+     * considering both distortion and the Huffman coding cost (including
+     * run-length encoding of zeros).
+     */
     for (i = Ss; i <= Se; i++) {
       int z = jpeg_natural_order[i];
 
@@ -1136,7 +1167,7 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
 
       if (qval == 0) {
         coef_blocks[bi][z] = 0;
-        accumulated_cost[i] = 1e38; /* Shouldn't be needed */
+        accumulated_cost[i] = COST_INFINITY; /* Shouldn't be needed */
         continue;
       }
 
@@ -1152,7 +1183,7 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
         candidate_dist[k] = delta * delta * lambda * lambda_tbl[z];
       }
       
-      accumulated_cost[i] = 1e38;
+      accumulated_cost[i] = COST_INFINITY;
       
       for (j = Ss-1; j < i; j++) {
         int zz = jpeg_natural_order[j];
@@ -1183,12 +1214,18 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
         }
       }
     }
-    
+
+    /* ===== End-of-Block Optimization =====
+     * Find the optimal position for the EOB marker. Trailing zeros don't
+     * need to be coded explicitly, so we find the best trade-off between
+     * coding the EOB earlier (saving bits on trailing zeros) vs. keeping
+     * more coefficients (reducing distortion).
+     */
     last_coeff_idx = Ss-1;
     best_cost = accumulated_zero_dist[Se] + actbl->ehufsi[0];
     cost_all_zeros = accumulated_zero_dist[Se];
     best_cost_skip = cost_all_zeros;
-    
+
     for (i = Ss; i <= Se; i++) {
       int z = jpeg_natural_order[i];
       if (coef_blocks[bi][z] != 0) {
@@ -1226,7 +1263,7 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
       accumulated_zero_block_cost[bi+1] += cost_all_zeros;
       requires_eob[bi+1] = has_eob;
       
-      best_cost = 1e38;
+      best_cost = COST_INFINITY;
       
       if (has_eob != 2) {
         for (i = 0; i <= bi; i++) {
@@ -1257,7 +1294,7 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
   
   if (cinfo->master->trellis_eob_opt) {
     int last_block = num_blocks;
-    best_cost = 1e38;
+    best_cost = COST_INFINITY;
     
     for (i = 0; i <= num_blocks; i++) {
       int zero_block_run;
@@ -1530,7 +1567,7 @@ quantize_trellis_arith(j_compress_ptr cinfo, arith_rates *r, JBLOCKROW coef_bloc
       
       if (qval == 0) {
         coef_blocks[bi][z] = 0;
-        accumulated_cost[i] = 1e38; /* Shouldn't be needed */
+        accumulated_cost[i] = COST_INFINITY; /* Shouldn't be needed */
         continue;
       }
       
@@ -1547,7 +1584,7 @@ quantize_trellis_arith(j_compress_ptr cinfo, arith_rates *r, JBLOCKROW coef_bloc
       }
       num_candidates = k;
       
-      accumulated_cost[i] = 1e38;
+      accumulated_cost[i] = COST_INFINITY;
       
       for (j = Ss-1; j < i; j++) {
         int zz = jpeg_natural_order[j];
