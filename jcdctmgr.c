@@ -992,6 +992,7 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
   float best_cost;
   int last_coeff_idx; /* position of last nonzero coefficient */
   const int max_coef_bits = cinfo->data_precision + 2;
+  const int max_coef_value = (1 << max_coef_bits) - 1;  /* e.g., 1023 for 8-bit */
   float norm = 0.0;
   float lambda_base;
   float lambda;
@@ -1107,15 +1108,17 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
         int bits;
 
         dc_candidate[k][bi] = qval - dc_trellis_candidates/2 + k;
-        if (dc_candidate[k][bi] >= (1<<max_coef_bits))
-          dc_candidate[k][bi] = (1<<max_coef_bits)-1;
-        if (dc_candidate[k][bi] <= -(1<<max_coef_bits))
-          dc_candidate[k][bi] = -(1<<max_coef_bits)+1;
+        /* Clamp to valid coefficient range */
+        if (dc_candidate[k][bi] > max_coef_value)
+          dc_candidate[k][bi] = max_coef_value;
+        if (dc_candidate[k][bi] < -max_coef_value)
+          dc_candidate[k][bi] = -max_coef_value;
 
         delta = dc_candidate[k][bi] * q - x;
         dc_candidate_dist = delta * delta * lambda_dc;
+        /* Apply sign: if sign=-1 (negative), multiply by -1; if sign=0, keep positive */
         dc_candidate[k][bi] *= 1 + 2*sign;
-        
+
         /* Take into account DC differences */
         if (coef_blocks_above && src_above && cinfo->master->trellis_delta_dc_weight > 0.0) {
           int dc_above_orig;
@@ -1196,8 +1199,8 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
         continue;
       }
 
-      if (qval >= (1<<max_coef_bits))
-        qval = (1<<max_coef_bits)-1;
+      if (qval > max_coef_value)
+        qval = max_coef_value;
       
       num_candidates = JPEG_NBITS(qval);
       for (k = 0; k < num_candidates; k++) {
