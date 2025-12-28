@@ -1736,30 +1736,58 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
       zero_trailing_coefficients(coef_blocks, bi, Ss, Se, last_coeff_idx, run_start);
     }
 
+    /* ===== Cross-Block EOB Optimization (Block-Level Viterbi) =====
+     *
+     * This is a second-level dynamic programming pass that optimizes
+     * across entire blocks, not just coefficients within a block.
+     *
+     * In progressive JPEG, an EOBn code can skip multiple all-zero blocks:
+     * - EOB1 (0x00) ends the current block
+     * - EOB2-EOB15 (0x10-0xE0) skip 2-15 blocks
+     * - EOBMAX encodes runs of 16+ zero blocks
+     *
+     * STATE VARIABLES (block-level):
+     * - accumulated_zero_block_cost[i]: distortion if blocks 0..i-1 are all zeros
+     * - accumulated_block_cost[i]: min cost to reach block i with non-zero content
+     * - block_run_start[i]: predecessor block (for backtracking)
+     * - requires_eob[i]: EOB status (0=no EOB, 1=has EOB, 2=all zeros)
+     *
+     * ALGORITHM:
+     * For each non-all-zero block bi:
+     *   Try each previous block i as the last non-zero block
+     *   Compute cost = this_block + skip_cost(i+1..bi-1) + path_to_i
+     *   Update if cheaper than current best
+     */
     if (cinfo->master->trellis_eob_opt) {
+      /* Update cumulative costs for this block */
       accumulated_zero_block_cost[bi+1] = accumulated_zero_block_cost[bi];
       accumulated_zero_block_cost[bi+1] += cost_all_zeros;
       requires_eob[bi+1] = has_eob;
-      
+
       best_cost = COST_INFINITY;
-      
+
+      /* Only search if this block has content (not all zeros) */
       if (has_eob != 2) {
         for (i = 0; i <= bi; i++) {
           int zero_block_run;
           int nbits;
           float cost;
-          
+
+          /* Skip all-zero blocks as predecessors */
           if (requires_eob[i] == 2)
             continue;
-          
-          cost = best_cost_skip; /* cost of coding a nonzero block */
-          cost += accumulated_zero_block_cost[bi];
-          cost -= accumulated_zero_block_cost[i];
-          cost += accumulated_block_cost[i];
+
+          /* Cost = this block + skipped blocks distortion + path to predecessor */
+          cost = best_cost_skip;  /* Cost of coding current block without EOB */
+          cost += accumulated_zero_block_cost[bi];   /* Distortion of zero blocks before bi */
+          cost -= accumulated_zero_block_cost[i];    /* Subtract distortion already counted */
+          cost += accumulated_block_cost[i];         /* Add optimal path cost to predecessor */
+
+          /* Add cost of EOBn code for the zero block run */
           zero_block_run = bi - i + requires_eob[i];
           nbits = JPEG_NBITS(zero_block_run);
           cost += actbl->ehufsi[16*nbits] + nbits;
-          
+
           if (cost < best_cost) {
             block_run_start[bi] = i;
             best_cost = cost;
@@ -1770,31 +1798,48 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
     }
   }
   
+  /* ===== Cross-Block EOB Finalization (Backtrack Phase) =====
+   *
+   * After processing all blocks, we finalize the cross-block optimization:
+   * 1. Find optimal endpoint (which block should be last non-zero)
+   * 2. Backtrack through block_run_start to find optimal block structure
+   * 3. Zero out blocks that should be part of EOBn runs
+   */
   if (cinfo->master->trellis_eob_opt) {
     int last_block = num_blocks;
     best_cost = COST_INFINITY;
-    
+
+    /* Find the optimal last non-zero block.
+     * Consider each block i as the potential last block, computing the
+     * cost of treating all remaining blocks as part of an EOBn run. */
     for (i = 0; i <= num_blocks; i++) {
       int zero_block_run;
       int nbits;
       float cost = 0.0;
-      
+
       if (requires_eob[i] == 2)
         continue;
 
+      /* Cost of making blocks i+1..num_blocks all zeros */
       cost += accumulated_zero_block_cost[num_blocks];
       cost -= accumulated_zero_block_cost[i];
+
+      /* Cost of EOBn code for trailing zero block run */
       zero_block_run = num_blocks - i + requires_eob[i];
       nbits = JPEG_NBITS(zero_block_run);
       cost += actbl->ehufsi[16*nbits] + nbits;
+
       if (cost < best_cost) {
         best_cost = cost;
         last_block = i;
       }
     }
+
+    /* Backtrack: zero out blocks that should be part of EOBn runs */
     last_block--;
     bi = num_blocks - 1;
     while (bi >= 0) {
+      /* Zero out trailing blocks up to last_block */
       while (bi > last_block) {
         for (j = Ss; j <= Se; j++) {
           int z = jpeg_natural_order[j];
@@ -1802,9 +1847,11 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
         }
         bi--;
       }
-      last_block = block_run_start[bi]-1;
+      /* Move to previous segment via block_run_start */
+      last_block = block_run_start[bi] - 1;
       bi--;
     }
+
     free(accumulated_zero_block_cost);
     free(accumulated_block_cost);
     free(block_run_start);
