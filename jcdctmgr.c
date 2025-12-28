@@ -1525,73 +1525,120 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
       }
     }
 
-    /* ===== AC Coefficient Processing =====
-     * Process AC coefficients in zig-zag order. For each position, we
-     * evaluate multiple candidate values and track the optimal path
-     * considering both distortion and the Huffman coding cost (including
-     * run-length encoding of zeros).
+    /* ===== AC Coefficient Processing (Viterbi/Trellis Search) =====
+     *
+     * This implements a shortest-path search through a trellis graph where:
+     *
+     * GRAPH STRUCTURE:
+     * - Nodes: Each (position, candidate_value) pair is a node
+     * - Edges: Connect non-zero coefficient at position j to position i,
+     *   with weight = cost to encode zeros from j+1 to i-1, plus i's coeff
+     *
+     * STATE VARIABLES:
+     * - accumulated_cost[i]: Minimum cost to reach position i with a
+     *   non-zero coefficient at i
+     * - accumulated_zero_dist[i]: Distortion if coeffs from Ss to i are all zero
+     * - run_start[i]: Position of previous non-zero coeff on optimal path
+     *
+     * ALGORITHM:
+     * For each position i in zig-zag order:
+     *   1. Update accumulated_zero_dist[i] (cumulative if all zeros)
+     *   2. Skip if coefficient quantizes to zero naturally
+     *   3. Generate candidate values at Huffman category boundaries
+     *   4. For each possible "last non-zero" position j < i:
+     *      - Compute zero_run = i - 1 - j
+     *      - For each candidate value:
+     *        - cost = bits(zero_run, candidate) + distortion(candidate)
+     *              + cost_of_zeros(j+1..i-1) + accumulated_cost[j]
+     *        - Update if this path is cheaper
+     *
+     * The result is the globally optimal quantization given the rate
+     * constraint from the Huffman table.
      */
     for (i = Ss; i <= Se; i++) {
-      int z = jpeg_natural_order[i];
+      int z = jpeg_natural_order[i];  /* Convert scan order to zig-zag index */
 
-      int sign = src[bi][z] >> 31;
-      int x = abs(src[bi][z]);
-      int q = 8 * qtbl->quantval[z];
+      /* Extract sign and magnitude of original DCT coefficient */
+      int sign = src[bi][z] >> 31;  /* 0 if positive, -1 if negative */
+      int x = abs(src[bi][z]);       /* Original magnitude (scaled by 8) */
+      int q = 8 * qtbl->quantval[z]; /* Quantization step (scaled) */
       int candidate[16];
       int candidate_bits[16];
       float candidate_dist[16];
       int num_candidates;
       int qval;
-      
-      accumulated_zero_dist[i] = x * x * lambda * lambda_tbl[z] + accumulated_zero_dist[i-1];
-      
-      qval = (x + q/2) / q; /* quantized value (round nearest) */
 
+      /* Step 1: Update cumulative zero distortion.
+       * This tracks what we'd pay in distortion if all coeffs up to here were zero. */
+      accumulated_zero_dist[i] = x * x * lambda * lambda_tbl[z] + accumulated_zero_dist[i-1];
+
+      qval = (x + q/2) / q; /* Round-to-nearest quantization */
+
+      /* If coefficient naturally quantizes to zero, no candidates to explore */
       if (qval == 0) {
         coef_blocks[bi][z] = 0;
-        accumulated_cost[i] = COST_INFINITY; /* Shouldn't be needed */
+        accumulated_cost[i] = COST_INFINITY; /* Can't end path here */
         continue;
       }
 
       if (qval > max_coef_value)
         qval = max_coef_value;
-      
+
+      /* Step 3: Generate candidate values at Huffman category boundaries.
+       * Candidates: 1, 3, 7, 15, ... (largest in each category), then qval */
       num_candidates = JPEG_NBITS(qval);
       for (k = 0; k < num_candidates; k++) {
         int delta;
         candidate[k] = (k < num_candidates - 1) ? (2 << k) - 1 : qval;
         delta = candidate[k] * q - x;
-        candidate_bits[k] = k+1;
+        candidate_bits[k] = k+1;  /* Huffman category = number of magnitude bits */
         candidate_dist[k] = delta * delta * lambda * lambda_tbl[z];
       }
-      
+
       accumulated_cost[i] = COST_INFINITY;
-      
+
+      /* Step 4: Search for optimal path - try all valid predecessor positions */
       for (j = Ss-1; j < i; j++) {
         int zz = jpeg_natural_order[j];
+
+        /* Only consider paths from:
+         * - Start of block (j == Ss-1), or
+         * - Positions with non-zero coefficients (valid path endpoints) */
         if (j != Ss-1 && coef_blocks[bi][zz] == 0)
           continue;
-        
+
+        /* Compute zero run length between predecessor j and current position i */
         zero_run = i - 1 - j;
+
+        /* Skip if run length requires ZRL codes (0xF0) but table doesn't have them */
         if ((zero_run >> 4) && actbl->ehufsi[0xf0] == 0)
           continue;
-        
-        run_bits = (zero_run >> 4) * actbl->ehufsi[0xf0];
-        zero_run &= 15;
 
+        /* Cost for zero run length 16+ codes (each encodes 16 zeros) */
+        run_bits = (zero_run >> 4) * actbl->ehufsi[0xf0];
+        zero_run &= 15;  /* Remaining zeros (0-15) encoded with coefficient */
+
+        /* Try each candidate value from this predecessor */
         for (k = 0; k < num_candidates; k++) {
+          /* Look up Huffman code length for (run_length, category) pair */
           int coef_bits = actbl->ehufsi[16 * zero_run + candidate_bits[k]];
           if (coef_bits == 0)
-            continue;
-          
+            continue;  /* Symbol not in Huffman table */
+
+          /* Total rate = Huffman code + magnitude bits + ZRL codes */
           rate = coef_bits + candidate_bits[k] + run_bits;
+
+          /* Path cost = rate + distortion for this coeff */
           cost = rate + candidate_dist[k];
+
+          /* Add cost of zeros between j and i-1, plus accumulated cost to reach j */
           cost += accumulated_zero_dist[i-1] - accumulated_zero_dist[j] + accumulated_cost[j];
-          
+
+          /* Update if this path is cheaper than any previously found */
           if (cost < accumulated_cost[i]) {
-            coef_blocks[bi][z] = (candidate[k] ^ sign) - sign;
+            coef_blocks[bi][z] = (candidate[k] ^ sign) - sign;  /* Apply sign */
             accumulated_cost[i] = cost;
-            run_start[i] = j;
+            run_start[i] = j;  /* Remember predecessor for backtracking */
           }
         }
       }
