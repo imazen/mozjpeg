@@ -1026,6 +1026,50 @@ compute_block_lambda(j_compress_ptr cinfo, float lambda_base, float norm)
 }
 
 /*
+ * Compute Huffman coding cost for a DC coefficient difference.
+ *
+ * DC coefficients use differential coding, so we encode the difference
+ * from the previous block's DC. The cost is: category_bits + huffman_code_length
+ * where category_bits = JPEG_NBITS(|dc_delta|).
+ */
+LOCAL(int)
+compute_dc_huffman_bits(int dc_delta, const c_derived_tbl *dctbl)
+{
+  int nbits = JPEG_NBITS(abs(dc_delta));
+  return nbits + dctbl->ehufsi[nbits];
+}
+
+/*
+ * Compute Huffman coding cost for an AC coefficient.
+ *
+ * AC coefficients use run-length encoding. The cost depends on:
+ * - zero_run: number of preceding zeros (0-15 per code, 0xF0 for runs of 16)
+ * - nbits: category (number of bits to represent coefficient magnitude)
+ *
+ * Returns the bit cost, or -1 if the encoding is not valid.
+ */
+LOCAL(int)
+compute_ac_huffman_bits(int zero_run, int nbits, const c_derived_tbl *actbl)
+{
+  int run_bits = 0;
+
+  /* Handle runs of 16 or more zeros using ZRL (0xF0) codes */
+  if (zero_run >= 16) {
+    if (actbl->ehufsi[0xF0] == 0)
+      return -1;  /* ZRL not available in this table */
+    run_bits = (zero_run / 16) * actbl->ehufsi[0xF0];
+    zero_run = zero_run % 16;
+  }
+
+  /* Look up Huffman code for (run, category) pair */
+  int symbol = 16 * zero_run + nbits;
+  if (actbl->ehufsi[symbol] == 0)
+    return -1;  /* Symbol not available in this table */
+
+  return run_bits + actbl->ehufsi[symbol] + nbits;
+}
+
+/*
  * Trellis quantization for Huffman-coded JPEG.
  *
  * This function performs rate-distortion optimal quantization using
@@ -1162,7 +1206,6 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
       for (k = 0; k < dc_trellis_candidates; k++) {
         int delta;
         int dc_delta;
-        int bits;
 
         dc_candidate[k][bi] = qval - dc_trellis_candidates/2 + k;
         /* Clamp to valid coefficient range */
@@ -1196,29 +1239,13 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
         
         if (bi == 0) {
           dc_delta = dc_candidate[k][bi] - *last_dc_val;
-
-          /* Derive number of suffix bits */
-          bits = 0;
-          dc_delta = abs(dc_delta);
-          while (dc_delta) {
-            dc_delta >>= 1;
-            bits++;
-          }
-          cost = bits + dctbl->ehufsi[bits] + dc_candidate_dist;
+          cost = compute_dc_huffman_bits(dc_delta, dctbl) + dc_candidate_dist;
           accumulated_dc_cost[k][0] = cost;
           dc_cost_backtrack[k][0] = -1;
         } else {
           for (l = 0; l < dc_trellis_candidates; l++) {
             dc_delta = dc_candidate[k][bi] - dc_candidate[l][bi-1];
-
-            /* Derive number of suffix bits */
-            bits = 0;
-            dc_delta = abs(dc_delta);
-            while (dc_delta) {
-              dc_delta >>= 1;
-              bits++;
-            }
-            cost = bits + dctbl->ehufsi[bits] + dc_candidate_dist + accumulated_dc_cost[l][bi-1];
+            cost = compute_dc_huffman_bits(dc_delta, dctbl) + dc_candidate_dist + accumulated_dc_cost[l][bi-1];
             if (l == 0 || cost < accumulated_dc_cost[k][bi]) {
               accumulated_dc_cost[k][bi] = cost;
               dc_cost_backtrack[k][bi] = l;
