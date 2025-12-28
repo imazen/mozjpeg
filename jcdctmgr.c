@@ -1146,6 +1146,116 @@ compute_distortion(int reconstructed, int original, float lambda, float weight)
 }
 
 /*
+ * Generate DC coefficient candidate values for trellis optimization.
+ *
+ * For each block's DC coefficient, we generate multiple quantization
+ * candidates centered around the optimal (round-to-nearest) value.
+ * This allows the trellis to explore different quantization levels
+ * and find the path that minimizes rate-distortion cost.
+ *
+ * The candidates are: [qval - n/2, qval - n/2 + 1, ..., qval + n/2]
+ * where qval is the round-to-nearest quantized value and n is the
+ * number of candidates.
+ *
+ * Parameters:
+ *   original_dc    - Original DC coefficient value (already scaled by 8)
+ *   quant_step     - Quantization step size (8 * qtbl->quantval[0])
+ *   max_value      - Maximum allowed coefficient magnitude
+ *   num_candidates - Number of candidates to generate (typically 9)
+ *   candidates     - Output array of candidate values (magnitude only)
+ *   base_qval      - Output: the center quantization value
+ *
+ * Note: Candidates are generated as magnitudes. The caller must apply
+ * the original sign after computing distortion.
+ */
+LOCAL(void)
+generate_dc_candidates(int original_dc, int quant_step, int max_value,
+                       int num_candidates, JCOEF *candidates, int *base_qval)
+{
+  int x = abs(original_dc);
+  int qval = (x + quant_step / 2) / quant_step;  /* Round to nearest */
+  int k;
+
+  *base_qval = qval;
+
+  for (k = 0; k < num_candidates; k++) {
+    candidates[k] = qval - num_candidates / 2 + k;
+
+    /* Clamp to valid coefficient range */
+    if (candidates[k] > max_value)
+      candidates[k] = max_value;
+    if (candidates[k] < -max_value)
+      candidates[k] = -max_value;
+  }
+}
+
+/*
+ * Apply original sign to a quantized DC coefficient.
+ *
+ * DC coefficients are processed as magnitudes during candidate generation
+ * and distortion calculation. This function restores the original sign
+ * using the branchless formula: value * (1 + 2*sign)
+ *
+ * When sign = 0 (positive original): 1 + 2*0 = 1, value unchanged
+ * When sign = -1 (negative original): 1 + 2*(-1) = -1, value negated
+ *
+ * Parameters:
+ *   value - Magnitude of the quantized coefficient
+ *   sign  - Sign extracted via arithmetic right shift (0 or -1)
+ */
+LOCAL(JCOEF)
+apply_dc_sign(JCOEF value, int sign)
+{
+  return value * (1 + 2 * sign);
+}
+
+/*
+ * Compute vertical DC distortion for inter-block prediction.
+ *
+ * When encoding progressive JPEGs, we can improve quality by considering
+ * vertical DC gradients. This function computes how much the quantization
+ * choice affects the vertical gradient between this block and the block
+ * above it.
+ *
+ * The distortion is: ((orig_gradient) - (recon_gradient))^2 * lambda
+ *
+ * Parameters:
+ *   dc_above_orig  - Original DC of block above (from src_above)
+ *   dc_above_recon - Reconstructed DC of block above (from coef_blocks_above)
+ *   dc_orig        - Original DC of current block
+ *   dc_recon       - Reconstructed DC of current block (candidate * q)
+ *   lambda_dc      - Rate-distortion parameter for DC
+ *
+ * Returns the vertical gradient distortion.
+ */
+LOCAL(float)
+compute_vertical_dc_distortion(int dc_above_orig, int dc_above_recon,
+                               int dc_orig, int dc_recon, float lambda_dc)
+{
+  /* delta is difference of vertical gradients:
+   * original gradient: dc_above_orig - dc_orig
+   * reconstructed gradient: dc_above_recon - dc_recon
+   */
+  int delta = (dc_above_orig - dc_orig) - (dc_above_recon - dc_recon);
+  return delta * delta * lambda_dc;
+}
+
+/*
+ * Blend base distortion with vertical distortion using a weight.
+ *
+ * The final DC distortion is a weighted combination:
+ *   final = base + weight * (vertical - base)
+ *         = base * (1 - weight) + vertical * weight
+ *
+ * A weight of 0 uses only base distortion, 1 uses only vertical.
+ */
+LOCAL(float)
+blend_dc_distortion(float base_dist, float vertical_dist, float weight)
+{
+  return base_dist + weight * (vertical_dist - base_dist);
+}
+
+/*
  * Trellis quantization for Huffman-coded JPEG.
  *
  * This function performs rate-distortion optimal quantization using
