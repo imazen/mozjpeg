@@ -959,6 +959,73 @@ zero_trailing_coefficients(JBLOCKROW coef_blocks, int bi,
 }
 
 /*
+ * Initialize the lambda weight table for rate-distortion optimization.
+ *
+ * The lambda table weights distortion differently for each DCT frequency.
+ * When use_lambda_weight_tbl is set, we use perceptual (CSF) weights.
+ * Otherwise, we compute weights from the quantization table.
+ *
+ * Returns the lambda_base scaling factor.
+ */
+LOCAL(float)
+init_lambda_table(int mode, float norm, const JQUANT_TBL *qtbl,
+                  float *lambda_table)
+{
+  int i;
+  float lambda_base;
+
+  if (mode == 1) {
+    lambda_base = 1.0f;
+    for (i = 0; i < DCTSIZE2; i++)
+      lambda_table[i] = 1.0f / (qtbl->quantval[i] * qtbl->quantval[i]);
+  } else {
+    lambda_base = 1.0f / norm;
+  }
+  return lambda_base;
+}
+
+/*
+ * Compute the block's AC energy (norm) for adaptive lambda scaling.
+ *
+ * Higher energy blocks get lower lambda (more bits), which helps
+ * preserve detail in complex regions.
+ */
+LOCAL(float)
+compute_block_ac_energy(const JBLOCKROW src, int bi)
+{
+  int i;
+  float norm = 0.0f;
+
+  for (i = 1; i < DCTSIZE2; i++) {
+    norm += src[bi][i] * src[bi][i];
+  }
+  return norm / 63.0f;
+}
+
+/*
+ * Compute the rate-distortion lambda parameter for a block.
+ *
+ * Lambda controls the tradeoff between bitrate (rate) and distortion.
+ * Higher lambda = more aggressive quantization (lower bitrate, higher distortion).
+ *
+ * The computation uses logarithmic scaling for stability:
+ *   lambda = 2^scale1 * lambda_base / (2^scale2 + norm)
+ */
+LOCAL(float)
+compute_block_lambda(j_compress_ptr cinfo, float lambda_base, float norm)
+{
+  float lambda;
+
+  if (cinfo->master->lambda_log_scale2 > 0.0) {
+    lambda = pow(2.0, cinfo->master->lambda_log_scale1) * lambda_base /
+             (pow(2.0, cinfo->master->lambda_log_scale2) + norm);
+  } else {
+    lambda = pow(2.0, cinfo->master->lambda_log_scale1 - 12.0) * lambda_base;
+  }
+  return lambda;
+}
+
+/*
  * Trellis quantization for Huffman-coded JPEG.
  *
  * This function performs rate-distortion optimal quantization using
@@ -1055,34 +1122,24 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
     }
   }
   
+  /* Compute initial norm from quantization table for lambda_base */
   norm = 0.0;
   for (i = 1; i < DCTSIZE2; i++) {
     norm += qtbl->quantval[i] * qtbl->quantval[i];
   }
   norm /= 63.0;
 
-  if (mode == 1) {
-    lambda_base = 1.0;
+  /* Initialize lambda weighting table */
+  lambda_base = init_lambda_table(mode, norm, qtbl, lambda_table);
+  if (mode == 1)
     lambda_tbl = lambda_table;
-    for (i = 0; i < DCTSIZE2; i++)
-      lambda_table[i] = 1.0 / (qtbl->quantval[i] * qtbl->quantval[i]);
-  } else
-    lambda_base = 1.0 / norm;
-  
+
   for (bi = 0; bi < num_blocks; bi++) {
-    
-    norm = 0.0;
-    for (i = 1; i < DCTSIZE2; i++) {
-      norm += src[bi][i] * src[bi][i];
-    }
-    norm /= 63.0;
-    
-    if (cinfo->master->lambda_log_scale2 > 0.0)
-      lambda = pow(2.0, cinfo->master->lambda_log_scale1) * lambda_base /
-                   (pow(2.0, cinfo->master->lambda_log_scale2) + norm);
-    else
-      lambda = pow(2.0, cinfo->master->lambda_log_scale1 - 12.0) * lambda_base;
-    
+    /* Compute block's AC energy for adaptive lambda */
+    norm = compute_block_ac_energy(src, bi);
+
+    /* Compute rate-distortion tradeoff parameter */
+    lambda = compute_block_lambda(cinfo, lambda_base, norm);
     lambda_dc = lambda * lambda_tbl[0];
     
     accumulated_zero_dist[Ss-1] = 0.0;
@@ -1438,39 +1495,29 @@ quantize_trellis_arith(j_compress_ptr cinfo, arith_rates *r, JBLOCKROW coef_bloc
     }
   }
   
+  /* Compute initial norm from quantization table for lambda_base */
   norm = 0.0;
   for (i = 1; i < DCTSIZE2; i++) {
     norm += qtbl->quantval[i] * qtbl->quantval[i];
   }
   norm /= 63.0;
-  
-  if (mode == 1) {
-    lambda_base = 1.0;
+
+  /* Initialize lambda weighting table */
+  lambda_base = init_lambda_table(mode, norm, qtbl, lambda_table);
+  if (mode == 1)
     lambda_tbl = lambda_table;
-    for (i = 0; i < DCTSIZE2; i++)
-      lambda_table[i] = 1.0 / (qtbl->quantval[i] * qtbl->quantval[i]);
-  } else
-    lambda_base = 1.0 / norm;
-  
+
   for (bi = 0; bi < num_blocks; bi++) {
-    
-    norm = 0.0;
-    for (i = 1; i < DCTSIZE2; i++) {
-      norm += src[bi][i] * src[bi][i];
-    }
-    norm /= 63.0;
-    
-    if (cinfo->master->lambda_log_scale2 > 0.0)
-      lambda = pow(2.0, cinfo->master->lambda_log_scale1) * lambda_base /
-      (pow(2.0, cinfo->master->lambda_log_scale2) + norm);
-    else
-      lambda = pow(2.0, cinfo->master->lambda_log_scale1 - 12.0) * lambda_base;
-    
+    /* Compute block's AC energy for adaptive lambda */
+    norm = compute_block_ac_energy(src, bi);
+
+    /* Compute rate-distortion tradeoff parameter */
+    lambda = compute_block_lambda(cinfo, lambda_base, norm);
     lambda_dc = lambda * lambda_tbl[0];
-    
+
     accumulated_zero_dist[Ss-1] = 0.0;
     accumulated_cost[Ss-1] = 0.0;
-    
+
     /* Do DC coefficient */
     if (cinfo->master->trellis_quant_dc) {
       int sign = src[bi][0] >> 31;
