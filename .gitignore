@@ -45,4 +45,4 @@ Makefile
 /yuvjpeg
 test_yuv*.jpg
 CMakeCache.txt
-CTestTestfile.cmake
+CTestTestfile.cmakelocked-tests/references/outputs/

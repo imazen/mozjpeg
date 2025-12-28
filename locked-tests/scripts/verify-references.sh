@@ -38,10 +38,23 @@ if [ ! -d "$CODEC_CORPUS" ]; then
     exit 1
 fi
 
-if [ ! -d "$REFERENCE_DIR" ]; then
-    echo "ERROR: Reference outputs not found at $REFERENCE_DIR"
-    echo "Generate references first: ./locked-tests/scripts/generate-references.sh"
-    exit 1
+if [ ! -d "$REFERENCE_DIR" ] || [ -z "$(ls -A "$REFERENCE_DIR" 2>/dev/null)" ]; then
+    echo "Reference outputs not found at $REFERENCE_DIR"
+    echo "Fetching from imazen/mozjpeg-test-references..."
+    REFS_REPO="https://github.com/imazen/mozjpeg-test-references.git"
+    REFS_TEMP=$(mktemp -d)
+    if git clone --depth 1 "$REFS_REPO" "$REFS_TEMP"; then
+        mkdir -p "$REFERENCE_DIR"
+        cp -r "$REFS_TEMP/outputs/"* "$REFERENCE_DIR/"
+        cp "$REFS_TEMP/REFERENCE_INFO.json" "$LOCKED_TESTS_DIR/references/"
+        cp "$REFS_TEMP/checksums.sha256" "$LOCKED_TESTS_DIR/references/"
+        rm -rf "$REFS_TEMP"
+        echo "References fetched successfully."
+    else
+        rm -rf "$REFS_TEMP"
+        echo "ERROR: Failed to fetch references from $REFS_REPO"
+        exit 1
+    fi
 fi
 
 echo "Verifying locked test outputs..."
