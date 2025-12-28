@@ -1340,6 +1340,81 @@ compute_zero_distortion(int original_x, float lambda_weight, float prev_zero_dis
 }
 
 /*
+ * Result of EOB position search within a single block.
+ */
+typedef struct {
+  int last_coeff_idx;   /* Position of last non-zero coeff (Ss-1 if all zeros) */
+  float best_cost;      /* Total cost including EOB marker */
+  float cost_wo_eob;    /* Cost without EOB (for cross-block optimization) */
+  float cost_all_zeros; /* Distortion if entire block is zeros */
+  int has_eob;          /* 0=no EOB needed, 1=EOB at last_coeff_idx, 2=all zeros */
+} EOBSearchResult;
+
+/*
+ * Find the optimal End-of-Block position within a single block.
+ *
+ * After the Viterbi path search determines candidate coefficients, we need
+ * to decide where to place the EOB marker. Trailing zeros don't need explicit
+ * coding, so we find the position that minimizes:
+ *   cost = rate_to_encode(coeffs 0..i) + distortion_of_zeros(i+1..Se) + EOB_bits
+ *
+ * The search considers every non-zero coefficient position as a potential
+ * last coefficient, comparing total cost against the all-zeros case.
+ *
+ * Parameters:
+ *   coef_blocks        - Quantized coefficients (to check which are non-zero)
+ *   bi                 - Block index
+ *   Ss, Se             - Scan range (start/end positions in zig-zag order)
+ *   accumulated_cost   - Cost to reach each position with non-zero coeff
+ *   accumulated_zero_dist - Distortion if zeros from Ss to each position
+ *   actbl              - AC Huffman table (for EOB code cost)
+ *   result             - Output: optimal EOB position and costs
+ */
+LOCAL(void)
+find_block_eob_position(JBLOCKROW coef_blocks, int bi, int Ss, int Se,
+                        const float *accumulated_cost,
+                        const float *accumulated_zero_dist,
+                        const c_derived_tbl *actbl,
+                        EOBSearchResult *result)
+{
+  int i;
+  float eob_cost = actbl->ehufsi[0];  /* Cost of EOB marker (symbol 0x00) */
+
+  /* Initialize with all-zeros case: no coefficients, just distortion */
+  result->last_coeff_idx = Ss - 1;
+  result->cost_all_zeros = accumulated_zero_dist[Se];
+  result->best_cost = result->cost_all_zeros + eob_cost;
+  result->cost_wo_eob = result->cost_all_zeros;
+
+  /* Try each non-zero coefficient as the last coefficient */
+  for (i = Ss; i <= Se; i++) {
+    int z = jpeg_natural_order[i];
+
+    if (coef_blocks[bi][z] != 0) {
+      /* Cost = path_cost + trailing_zeros_distortion */
+      float cost = accumulated_cost[i] + accumulated_zero_dist[Se] - accumulated_zero_dist[i];
+      float cost_wo_eob = cost;
+
+      /* Add EOB cost unless this is the last position (no EOB needed) */
+      if (i < Se)
+        cost += eob_cost;
+
+      if (cost < result->best_cost) {
+        result->best_cost = cost;
+        result->last_coeff_idx = i;
+        result->cost_wo_eob = cost_wo_eob;
+      }
+    }
+  }
+
+  /* Determine EOB marker status:
+   * 0 = no EOB (last coeff is at Se, block is fully coded)
+   * 1 = EOB marker needed at last_coeff_idx
+   * 2 = all zeros (special case, entire block skipped) */
+  result->has_eob = (result->last_coeff_idx < Se) + (result->last_coeff_idx == Ss - 1);
+}
+
+/*
  * Trellis quantization for Huffman-coded JPEG.
  *
  * This function performs rate-distortion optimal quantization using
@@ -1645,36 +1720,21 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
     }
 
     /* ===== End-of-Block Optimization =====
-     * Find the optimal position for the EOB marker. Trailing zeros don't
-     * need to be coded explicitly, so we find the best trade-off between
-     * coding the EOB earlier (saving bits on trailing zeros) vs. keeping
-     * more coefficients (reducing distortion).
+     * Find the optimal position for the EOB marker using the helper.
      */
-    last_coeff_idx = Ss-1;
-    best_cost = accumulated_zero_dist[Se] + actbl->ehufsi[0];
-    cost_all_zeros = accumulated_zero_dist[Se];
-    best_cost_skip = cost_all_zeros;
+    {
+      EOBSearchResult eob_result;
+      find_block_eob_position(coef_blocks, bi, Ss, Se,
+                              accumulated_cost, accumulated_zero_dist,
+                              actbl, &eob_result);
 
-    for (i = Ss; i <= Se; i++) {
-      int z = jpeg_natural_order[i];
-      if (coef_blocks[bi][z] != 0) {
-        float cost = accumulated_cost[i] + accumulated_zero_dist[Se] - accumulated_zero_dist[i];
-        float cost_wo_eob = cost;
-        
-        if (i < Se)
-          cost += actbl->ehufsi[0];
-        
-        if (cost < best_cost) {
-          best_cost = cost;
-          last_coeff_idx = i;
-          best_cost_skip = cost_wo_eob;
-        }
-      }
+      last_coeff_idx = eob_result.last_coeff_idx;
+      best_cost_skip = eob_result.cost_wo_eob;
+      has_eob = eob_result.has_eob;
+      cost_all_zeros = eob_result.cost_all_zeros;
+
+      zero_trailing_coefficients(coef_blocks, bi, Ss, Se, last_coeff_idx, run_start);
     }
-    
-    has_eob = (last_coeff_idx < Se) + (last_coeff_idx == Ss-1);
-
-    zero_trailing_coefficients(coef_blocks, bi, Ss, Se, last_coeff_idx, run_start);
 
     if (cinfo->master->trellis_eob_opt) {
       accumulated_zero_block_cost[bi+1] = accumulated_zero_block_cost[bi];
