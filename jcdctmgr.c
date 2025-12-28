@@ -1935,6 +1935,46 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
 #endif
 
 #ifdef C_ARITH_CODING_SUPPORTED
+/*
+ * Trellis quantization for arithmetic-coded JPEG.
+ *
+ * This is the arithmetic coding variant of quantize_trellis(). While the
+ * overall structure is similar (Viterbi-style path search), there are key
+ * differences in rate estimation and candidate generation.
+ *
+ * KEY DIFFERENCES FROM HUFFMAN VERSION:
+ *
+ * 1. RATE ESTIMATION:
+ *    - Uses arith_rates structure with rate_dc[][] and rate_ac[][] tables
+ *    - These contain estimated bit costs based on probability models
+ *    - No fixed Huffman codes; instead, adaptive probability estimates
+ *
+ * 2. DC CONTEXT TRACKING:
+ *    - Arithmetic DC coding uses context (small/zero/large difference)
+ *    - dc_context[] array tracks context state for each candidate path
+ *    - Context affects rate estimation for subsequent coefficients
+ *
+ * 3. AC CANDIDATE GENERATION:
+ *    - Simpler than Huffman: only qval and qval-1 as candidates
+ *    - No "category boundary" optimization needed since arithmetic coding
+ *      doesn't have discrete symbol categories like Huffman
+ *
+ * 4. RUN ENCODING:
+ *    - No ZRL (zero run length) codes; zeros encoded individually
+ *    - run_bits = sum of per-position zero probabilities
+ *    - Each position has its own rate based on scan position
+ *
+ * 5. NO CROSS-BLOCK EOB OPTIMIZATION:
+ *    - Arithmetic coding doesn't use EOBn codes
+ *    - No trellis_eob_opt block; simpler end-of-block handling
+ *
+ * 6. MAGNITUDE ENCODING:
+ *    - Binary decomposition with per-position probability models
+ *    - Context state machine: arith_ac_K threshold for model selection
+ *
+ * Parameters are similar to quantize_trellis(), except:
+ *   r - Arithmetic rate tables (replaces dctbl/actbl)
+ */
 GLOBAL(void)
 quantize_trellis_arith(j_compress_ptr cinfo, arith_rates *r, JBLOCKROW coef_blocks, JBLOCKROW src, JDIMENSION num_blocks,
                  JQUANT_TBL * qtbl, double *norm_src, double *norm_coef, JCOEF *last_dc_val,
