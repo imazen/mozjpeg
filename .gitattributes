@@ -3,3 +3,6 @@
 /.github export-ignore
 *.ppm binary
 /ChangeLog.md conflict-marker-size=8
+
+# Locked test reference outputs (Git LFS)
+locked-tests/references/outputs/*.jpg filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,61 @@
+name: Locked Regression Tests
+
+on:
+  push:
+    branches: [master, main, refactor/**]
+  pull_request:
+    branches: [master, main]
+
+env:
+  CODEC_CORPUS_REF: "main"
+
+jobs:
+  locked-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout mozjpeg
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Checkout codec-corpus (sparse)
+        uses: actions/checkout@v4
+        with:
+          repository: imazen/codec-corpus
+          ref: ${{ env.CODEC_CORPUS_REF }}
+          path: codec-corpus
+          sparse-checkout: |
+            kodak
+            CID22/CID22-512/validation
+          sparse-checkout-cone-mode: false
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake nasm libpng-dev
+
+      - name: Build mozjpeg
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DWITH_SIMD=1 -DPNG_SUPPORTED=ON
+          make -j$(nproc) cjpeg djpeg
+
+      - name: Verify cjpeg built correctly
+        run: |
+          ./build/cjpeg -version || ./build/cjpeg -help | head -5
+
+      - name: Run locked tests
+        env:
+          CODEC_CORPUS: ${{ github.workspace }}/codec-corpus
+        run: |
+          ./locked-tests/scripts/verify-references.sh
+
+      - name: Upload failed outputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-locked-test-outputs
+          path: /tmp/tmp.*/FAILED_*.jpg
+          retention-days: 7
+          if-no-files-found: ignore

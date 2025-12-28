@@ -1,0 +1,13 @@
+# CODEOWNERS for mozjpeg-clarity fork
+#
+# These owners will be requested for review when PRs touch these paths.
+# Reference changes require explicit approval.
+
+# Locked test references - require explicit approval for any changes
+# This prevents accidental updates to the golden reference outputs
+/locked-tests/references/ @lilith
+
+# Core optimization code - extra scrutiny
+/jcdctmgr.c @lilith
+/jchuff.c @lilith
+/jcphuff.c @lilith
