@@ -15,6 +15,49 @@
  * This code selects a particular DCT implementation to be used,
  * and it performs related housekeeping chores including coefficient
  * quantization.
+ *
+ * ============================================================================
+ * TRELLIS QUANTIZATION OVERVIEW
+ * ============================================================================
+ *
+ * This file implements trellis quantization, which finds optimal coefficient
+ * values by minimizing rate-distortion cost using dynamic programming.
+ *
+ * KEY ALGORITHMS:
+ *
+ * 1. DC Coefficient Optimization (trellis_quant_dc)
+ *    - DC coefficients use DPCM (differential coding across blocks)
+ *    - Generates multiple candidates per block
+ *    - Finds optimal path considering inter-block dependencies
+ *
+ * 2. AC Coefficient Optimization (quantize_trellis / quantize_trellis_arith)
+ *    - Uses Viterbi-style path search through coefficient candidates
+ *    - Candidates placed at Huffman category boundaries (1, 3, 7, 15, ...)
+ *    - Considers run-length encoding cost for zero runs
+ *
+ * 3. End-of-Block Optimization (trellis_eob_opt)
+ *    - Within-block: finds optimal position to truncate trailing zeros
+ *    - Cross-block: optimizes EOBn codes that span multiple blocks
+ *
+ * KEY DATA STRUCTURES:
+ *
+ * - TrellisCoeffState: Per-position state during AC coefficient search
+ * - ACCandidateSet: Candidate values at a single coefficient position
+ * - DCTrellisCandidate: Per-candidate arrays for DC trellis
+ * - EOBSearchResult: Result of within-block EOB search
+ *
+ * RATE ESTIMATION:
+ *
+ * For Huffman coding: ehufsi[] table gives code lengths
+ * For arithmetic coding: estimates based on probability models
+ *
+ * FUNCTIONS:
+ *
+ * quantize_trellis()       - Main Huffman trellis (8-bit samples)
+ * quantize_trellis_arith() - Arithmetic coding variant
+ *
+ * See individual function comments for detailed algorithm descriptions.
+ * ============================================================================
  */
 
 #define JPEG_INTERNALS
