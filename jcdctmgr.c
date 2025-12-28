@@ -934,6 +934,31 @@ LOCAL(int) get_num_dc_trellis_candidates(int dc_quantval) {
 }
 
 /*
+ * Zero out coefficients that are part of zero runs.
+ *
+ * After trellis optimization, some coefficients may have been set to zero
+ * to form optimal zero runs. This function applies those decisions by
+ * walking backward from Se to Ss, zeroing coefficients according to the
+ * run_start array which tracks where each run begins.
+ */
+LOCAL(void)
+zero_trailing_coefficients(JBLOCKROW coef_blocks, int bi,
+                           int Ss, int Se, int last_coeff_idx,
+                           const int *run_start)
+{
+  int i = Se;
+  while (i >= Ss) {
+    while (i > last_coeff_idx) {
+      int z = jpeg_natural_order[i];
+      coef_blocks[bi][z] = 0;
+      i--;
+    }
+    last_coeff_idx = run_start[i];
+    i--;
+  }
+}
+
+/*
  * Trellis quantization for Huffman-coded JPEG.
  *
  * This function performs rate-distortion optimal quantization using
@@ -1244,20 +1269,9 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
     }
     
     has_eob = (last_coeff_idx < Se) + (last_coeff_idx == Ss-1);
-    
-    /* Zero out coefficients that are part of runs */
-    i = Se;
-    while (i >= Ss)
-    {
-      while (i > last_coeff_idx) {
-        int z = jpeg_natural_order[i];
-        coef_blocks[bi][z] = 0;
-        i--;
-      }
-      last_coeff_idx = run_start[i];
-      i--;
-    }
-    
+
+    zero_trailing_coefficients(coef_blocks, bi, Ss, Se, last_coeff_idx, run_start);
+
     if (cinfo->master->trellis_eob_opt) {
       accumulated_zero_block_cost[bi+1] = accumulated_zero_block_cost[bi];
       accumulated_zero_block_cost[bi+1] += cost_all_zeros;
@@ -1655,22 +1669,11 @@ quantize_trellis_arith(j_compress_ptr cinfo, arith_rates *r, JBLOCKROW coef_bloc
         }
       }
     }
-    
-    /* Zero out coefficients that are part of runs */
-    i = Se;
-    while (i >= Ss)
-    {
-      while (i > last_coeff_idx) {
-        int z = jpeg_natural_order[i];
-        coef_blocks[bi][z] = 0;
-        i--;
-      }
-      last_coeff_idx = run_start[i];
-      i--;
-    }
-    
+
+    zero_trailing_coefficients(coef_blocks, bi, Ss, Se, last_coeff_idx, run_start);
+
   }
-  
+
   if (cinfo->master->trellis_q_opt) {
     for (bi = 0; bi < num_blocks; bi++) {
       for (i = 1; i < DCTSIZE2; i++) {
