@@ -89,6 +89,13 @@ endif()
 set(CDJPEG_COMPILE_FLAGS
   "-DBMP_SUPPORTED -DGIF_SUPPORTED -DPPM_SUPPORTED -DTARGA_SUPPORTED ${USE_SETMODE}")
 
+# PNG support - must be configured before cjpeg/djpeg targets
+set(RDPNG_SOURCE "")
+if(PNG_SUPPORTED)
+  set(CDJPEG_COMPILE_FLAGS "${CDJPEG_COMPILE_FLAGS} -DPNG_SUPPORTED")
+  set(RDPNG_SOURCE "../rdpng.c")
+endif()
+
 # Compile a separate version of these source files with 12-bit and 16-bit data
 # precision.
 add_library(cjpeg12 OBJECT ../rdgif.c ../rdppm.c)
@@ -99,7 +106,7 @@ set_property(TARGET cjpeg16 PROPERTY COMPILE_FLAGS
   "-DBITS_IN_JSAMPLE=16 -DGIF_SUPPORTED -DPPM_SUPPORTED")
 add_executable(cjpeg ../cjpeg.c ../cdjpeg.c ../rdbmp.c ../rdgif.c ../rdppm.c
   ../rdjpeg.c
-  ../rdswitch.c ../rdtarga.c $<TARGET_OBJECTS:cjpeg12>
+  ../rdswitch.c ../rdtarga.c ${RDPNG_SOURCE} $<TARGET_OBJECTS:cjpeg12>
   $<TARGET_OBJECTS:cjpeg16>)
 set_property(TARGET cjpeg PROPERTY COMPILE_FLAGS ${CDJPEG_COMPILE_FLAGS})
 target_link_libraries(cjpeg jpeg)
@@ -112,12 +119,6 @@ set_property(TARGET djpeg12 PROPERTY COMPILE_FLAGS
 add_library(djpeg16 OBJECT ../wrppm.c)
 set_property(TARGET djpeg16 PROPERTY COMPILE_FLAGS
   "-DBITS_IN_JSAMPLE=16 -DPPM_SUPPORTED")
-
-if(PNG_SUPPORTED)
-  report_option(PNG_SUPPORTED "PNG reading support")
-  set(COMPILE_FLAGS "${COMPILE_FLAGS} -DPNG_SUPPORTED")
-  set(CJPEG_BMP_SOURCES ${CJPEG_BMP_SOURCES} ../rdpng.c)
-endif()
 
 if(PNG_SUPPORTED)
   # to avoid finding static library from CMake cache
