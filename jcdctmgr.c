@@ -1256,6 +1256,90 @@ blend_dc_distortion(float base_dist, float vertical_dist, float weight)
 }
 
 /*
+ * Generate AC coefficient candidates for Huffman trellis optimization.
+ *
+ * For AC coefficients, we generate candidates at each "Huffman boundary":
+ * values that require different numbers of bits to encode. These are:
+ *   Category 1: 1           (1 bit)
+ *   Category 2: 2-3         (2 bits) - we use 3
+ *   Category 3: 4-7         (3 bits) - we use 7
+ *   Category 4: 8-15        (4 bits) - we use 15
+ *   ...
+ *   Category n: 2^(n-1) to 2^n-1
+ *
+ * The candidates are: [1, 3, 7, 15, 31, ..., qval]
+ * This is equivalent to: [(2 << k) - 1 for k in 0..num_bits-1], then qval
+ *
+ * Why these values? Within a Huffman category, all values have the same
+ * code length, so we pick the largest value (lowest distortion) in each
+ * category. This reduces the search space while maintaining optimality.
+ *
+ * Parameters:
+ *   qval           - Round-to-nearest quantized value (must be > 0)
+ *   original_x     - Absolute value of original coefficient
+ *   quant_step     - Quantization step (8 * qtbl->quantval[z])
+ *   lambda_weight  - lambda * lambda_tbl[z] for this frequency
+ *   candidates     - Output: ACCandidateSet with values, bits, distortion
+ */
+LOCAL(void)
+generate_ac_candidates_huffman(int qval, int original_x, int quant_step,
+                               float lambda_weight, ACCandidateSet *candidates)
+{
+  int k;
+  int num_candidates = JPEG_NBITS(qval);
+
+  candidates->count = num_candidates;
+
+  for (k = 0; k < num_candidates; k++) {
+    int delta;
+
+    /* Candidate value: (2 << k) - 1 = 2^(k+1) - 1 = largest in category k+1
+     * For the last candidate, use qval itself (may not be at boundary) */
+    candidates->value[k] = (k < num_candidates - 1) ? (2 << k) - 1 : qval;
+
+    /* Huffman category (number of bits for magnitude) */
+    candidates->bits[k] = k + 1;
+
+    /* Distortion: (reconstructed - original)^2 * lambda * weight */
+    delta = candidates->value[k] * quant_step - original_x;
+    candidates->distortion[k] = delta * delta * lambda_weight;
+  }
+}
+
+/*
+ * Apply sign to an AC coefficient using XOR trick.
+ *
+ * For AC coefficients, we use a different sign application than DC:
+ *   result = (value ^ sign) - sign
+ *
+ * When sign = 0 (positive): (value ^ 0) - 0 = value
+ * When sign = -1 (negative): (value ^ -1) - (-1) = (~value) + 1 = -value
+ *
+ * This is equivalent to: sign == 0 ? value : -value
+ */
+LOCAL(JCOEF)
+apply_ac_sign(int value, int sign)
+{
+  return (JCOEF)((value ^ sign) - sign);
+}
+
+/*
+ * Compute the accumulated zero distortion for an AC coefficient.
+ *
+ * This tracks the cumulative distortion if we set this coefficient
+ * and all previous ones (from position j to i) to zero. Used in
+ * rate-distortion optimization to evaluate zero runs.
+ *
+ * accumulated_zero_dist[i] = sum of (original[k]^2 * lambda * weight[k])
+ *                            for k from Ss to i
+ */
+LOCAL(float)
+compute_zero_distortion(int original_x, float lambda_weight, float prev_zero_dist)
+{
+  return original_x * original_x * lambda_weight + prev_zero_dist;
+}
+
+/*
  * Trellis quantization for Huffman-coded JPEG.
  *
  * This function performs rate-distortion optimal quantization using
