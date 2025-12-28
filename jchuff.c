@@ -613,6 +613,14 @@ encode_one_block(working_state *state, JCOEFPTR block, int last_dc_val,
 /* Manually unroll the k loop to eliminate the counter variable.  This
  * improves performance greatly on systems with a limited number of
  * registers (such as x86.)
+ *
+ * The macro is invoked with values from jpeg_natural_order[1..63] in
+ * zig-zag order. Each call processes one AC coefficient:
+ *   - If zero: increment run length (r += 16, where 16 = 1 run unit)
+ *   - If non-zero: emit ZRL codes if needed, then emit coefficient
+ *
+ * The unusual 'r += 16' instead of 'r++' packs run length and category
+ * into a single value: r = (run_length << 4) | category_bits
  */
 #define kloop(jpeg_natural_order_of_k) { \
   if ((temp = block[jpeg_natural_order_of_k]) == 0) { \
@@ -638,7 +646,13 @@ encode_one_block(working_state *state, JCOEFPTR block, int last_dc_val,
   } \
 }
 
-    /* One iteration for each value in jpeg_natural_order[] */
+    /* One iteration for each value in jpeg_natural_order[1..63].
+     * These are the zig-zag scan indices:
+     *   Row 0: DC=0, then 1, 2, 3, 4, 5, 6, 7
+     *   Row 1: 8, 9, 10, 11, 12, 13, 14, 15
+     *   etc.
+     * Processed in zig-zag order starting from position 1 (skipping DC).
+     */
     kloop(1);   kloop(8);   kloop(16);  kloop(9);   kloop(2);   kloop(3);
     kloop(10);  kloop(17);  kloop(24);  kloop(32);  kloop(25);  kloop(18);
     kloop(11);  kloop(4);   kloop(5);   kloop(12);  kloop(19);  kloop(26);
