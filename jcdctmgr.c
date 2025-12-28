@@ -953,6 +953,37 @@ typedef struct {
   int requires_eob;       /* Whether this block needs an EOB marker */
 } TrellisBlockState;
 
+/*
+ * AC coefficient candidate set.
+ *
+ * For each AC coefficient position, we generate multiple quantization
+ * candidates and evaluate their rate-distortion costs. The candidates
+ * are typically: 0, 1, 3, 7, 15, ..., qval (powers of 2 minus 1).
+ *
+ * This structure holds up to 16 candidates along with their
+ * Huffman category (bits) and distortion values.
+ */
+#define AC_CANDIDATE_MAX 16
+
+typedef struct {
+  int value[AC_CANDIDATE_MAX];       /* Quantized coefficient values */
+  int bits[AC_CANDIDATE_MAX];        /* Huffman category for each candidate */
+  float distortion[AC_CANDIDATE_MAX]; /* Distortion for each candidate */
+  int count;                          /* Number of valid candidates */
+} ACCandidateSet;
+
+/*
+ * DC trellis candidate state.
+ *
+ * For DC coefficients, we track multiple candidate values across
+ * blocks to find the optimal differential coding path.
+ */
+typedef struct {
+  float *cost;        /* Accumulated cost for each candidate per block */
+  int *backtrack;     /* Index of previous candidate for backtracking */
+  JCOEF *value;       /* DC coefficient value for each candidate per block */
+} DCTrellisCandidate;
+
 LOCAL(int) get_num_dc_trellis_candidates(int dc_quantval) {
   /* Higher qualities can tolerate higher DC distortion */
   return MIN(DC_TRELLIS_MAX_CANDIDATES, (2 + 60 / dc_quantval)|1);
