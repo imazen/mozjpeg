@@ -1070,6 +1070,26 @@ compute_ac_huffman_bits(int zero_run, int nbits, const c_derived_tbl *actbl)
 }
 
 /*
+ * Compute the distortion (squared error) for a quantized coefficient.
+ *
+ * Distortion measures how much the reconstructed coefficient differs from
+ * the original. It's weighted by lambda (rate-distortion tradeoff) and
+ * an optional frequency-dependent weight.
+ *
+ * Parameters:
+ *   reconstructed - quantized coefficient * quantization step
+ *   original      - original DCT coefficient value
+ *   lambda        - rate-distortion tradeoff parameter
+ *   weight        - frequency-dependent weight (from lambda_tbl)
+ */
+LOCAL(float)
+compute_distortion(int reconstructed, int original, float lambda, float weight)
+{
+  int delta = reconstructed - original;
+  return delta * delta * lambda * weight;
+}
+
+/*
  * Trellis quantization for Huffman-coded JPEG.
  *
  * This function performs rate-distortion optimal quantization using
