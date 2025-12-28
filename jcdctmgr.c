@@ -928,6 +928,31 @@ static const float jpeg_lambda_weights_csf_luma[64] = {
 #define DC_TRELLIS_MAX_CANDIDATES 9
 #define COST_INFINITY 1e38f  /* Large cost value for unreachable states */
 
+/*
+ * Per-coefficient trellis state.
+ *
+ * Tracks accumulated costs and run information for each DCT coefficient
+ * position during Viterbi path search.
+ */
+typedef struct {
+  float zero_dist;    /* Accumulated distortion if this and all following coeffs are zero */
+  float cost;         /* Best rate-distortion cost to reach this position */
+  int run_start;      /* Start position of the zero run ending here */
+} TrellisCoeffState;
+
+/*
+ * Cross-block EOB optimization state.
+ *
+ * For progressive JPEG, we can optimize EOB placement across multiple
+ * blocks by tracking whether all-zero blocks can be merged into runs.
+ */
+typedef struct {
+  float zero_block_cost;  /* Cost if this block is all zeros */
+  float block_cost;       /* Actual block cost */
+  int run_start;          /* Start of zero block run */
+  int requires_eob;       /* Whether this block needs an EOB marker */
+} TrellisBlockState;
+
 LOCAL(int) get_num_dc_trellis_candidates(int dc_quantval) {
   /* Higher qualities can tolerate higher DC distortion */
   return MIN(DC_TRELLIS_MAX_CANDIDATES, (2 + 60 / dc_quantval)|1);
