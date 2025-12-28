@@ -1188,6 +1188,52 @@ compute_distortion(int reconstructed, int original, float lambda, float weight)
   return delta * delta * lambda * weight;
 }
 
+/* ============================================================================
+ * RATE COMPUTATION INTERFACE (For Rust Port)
+ * ============================================================================
+ *
+ * The trellis algorithm needs to estimate bit costs for different encoding
+ * decisions. For Rust porting, these can be abstracted as a trait:
+ *
+ * trait RateEstimator {
+ *     // DC coefficient differential rate
+ *     fn dc_bits(&self, dc_delta: i32, state: &mut DCState) -> f32;
+ *
+ *     // AC coefficient with zero run rate
+ *     fn ac_bits(&self, zero_run: usize, coef_value: i32, position: usize) -> f32;
+ *
+ *     // End-of-block marker rate
+ *     fn eob_bits(&self, position: usize) -> f32;
+ *
+ *     // Zero run length extension (Huffman ZRL = 0xF0)
+ *     fn zrl_bits(&self) -> Option<f32>;  // None if not supported
+ * }
+ *
+ * HUFFMAN IMPLEMENTATION (compute_dc_huffman_bits, compute_ac_huffman_bits):
+ * - Stateless: just table lookups based on category
+ * - dc_bits: ehufsi[nbits] + nbits
+ * - ac_bits: ehufsi[16*run + nbits] + nbits (+ ZRL codes if run >= 16)
+ * - eob_bits: ehufsi[0]
+ * - zrl_bits: ehufsi[0xF0]
+ *
+ * ARITHMETIC IMPLEMENTATION (see quantize_trellis_arith):
+ * - Stateful: context tracking affects rate estimates
+ * - dc_bits: rate_dc[context][...] with context state machine
+ *   - Tracks small/zero/large difference categories
+ *   - dc_context[] propagates between blocks
+ * - ac_bits: rate_ac[3*position + offset][bit] summed over magnitude bits
+ *   - Position-dependent probability models
+ *   - No ZRL; zeros encoded position-by-position
+ * - eob_bits: rate_ac[3*position][...]
+ * - zrl_bits: None (not used in arithmetic coding)
+ *
+ * KEY INSIGHT: The Huffman version uses category boundaries for candidates
+ * (1, 3, 7, 15...) because values in the same category have the same code
+ * length. Arithmetic uses simpler candidates (qval, qval-1) because there
+ * are no discrete categories.
+ * ============================================================================
+ */
+
 /*
  * Generate DC coefficient candidate values for trellis optimization.
  *
