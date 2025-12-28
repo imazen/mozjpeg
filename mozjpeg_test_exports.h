@@ -61,6 +61,39 @@ EXTERN(void) mozjpeg_test_downsample_h2v2(
     JDIMENSION width
 );
 
+/*
+ * Overshoot deringing preprocessing for testing.
+ * Applies deringing to level-shifted (centered) 8x8 block samples.
+ * Uses natural (zigzag) order for traversal.
+ *
+ * Input/Output: data - 64 level-shifted samples (-128 to +127)
+ * dc_quant - DC quantization value (used to limit overshoot)
+ */
+EXTERN(void) mozjpeg_test_preprocess_deringing(
+    DCTELEM *data,
+    UINT16 dc_quant
+);
+
+/*
+ * Trellis quantization on a single 8x8 block.
+ * This is a simplified test export of the core trellis algorithm.
+ *
+ * src - Raw DCT coefficients (64 values, scaled by 8)
+ * quantized - Output quantized coefficients (64 values)
+ * qtbl - Quantization table (64 values)
+ * ac_huffsi - AC Huffman code sizes (256 values, from c_derived_tbl.ehufsi)
+ * lambda_log_scale1 - Lambda scale parameter 1 (default: 14.75)
+ * lambda_log_scale2 - Lambda scale parameter 2 (default: 16.5)
+ */
+EXTERN(void) mozjpeg_test_trellis_quantize_block(
+    const JCOEF *src,
+    JCOEF *quantized,
+    const UINT16 *qtbl,
+    const signed char *ac_huffsi,
+    float lambda_log_scale1,
+    float lambda_log_scale2
+);
+
 #ifdef __cplusplus
 }
 #endif
