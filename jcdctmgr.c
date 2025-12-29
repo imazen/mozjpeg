@@ -1689,6 +1689,54 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
       }
     }
 
+    /* ===== Speed Optimization: Adaptive Search Limiting =====
+     *
+     * Trellis quantization has O(n²) complexity due to the predecessor
+     * search. For high-entropy blocks (many non-zero coefficients),
+     * this becomes very slow. We detect such blocks and limit the
+     * search to maintain performance with negligible quality impact.
+     *
+     * max_lookback: How many predecessor positions to consider
+     * max_ac_candidates: How many quantization candidates to try
+     *
+     * Controlled by trellis_speed_level (0-10):
+     *   0 = thorough (full search, slowest but optimal)
+     *   7 = default (balanced speed/quality)
+     *   10 = fast (most blocks use reduced search)
+     */
+    int max_lookback = 63;      /* Default: full search (all predecessors) */
+    int max_ac_candidates = 16; /* Default: all candidates */
+    int speed_level = cinfo->master->trellis_speed_level;
+
+    if (speed_level > 0) {
+      int nonzero_count = 0;
+
+      /* Count non-zero coefficients to determine block complexity */
+      for (i = Ss; i <= Se; i++) {
+        int z = jpeg_natural_order[i];
+        int x = abs(src[bi][z]);
+        int q = 8 * qtbl->quantval[z];
+        if ((x + q/2) / q > 0) nonzero_count++;
+      }
+
+      /* Threshold decreases as level increases (more blocks affected)
+       * Level 1: threshold=58, Level 7: threshold=40, Level 10: threshold=31
+       */
+      int threshold = 61 - speed_level * 3;
+
+      if (nonzero_count > threshold) {
+        /* Lookback limit: decreases as level increases
+         * Level 1: 24, Level 7: 12, Level 10: 6 */
+        max_lookback = 26 - speed_level * 2;
+        if (max_lookback < 4) max_lookback = 4;
+
+        /* Candidate limit: decreases as level increases
+         * Level 1: 8, Level 7: 5, Level 10: 3 */
+        max_ac_candidates = 9 - (speed_level + 1) / 2;
+        if (max_ac_candidates < 2) max_ac_candidates = 2;
+      }
+    }
+
     /* ===== AC Coefficient Processing (Viterbi/Trellis Search) =====
      *
      * This implements a shortest-path search through a trellis graph where:
@@ -1751,6 +1799,8 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
       /* Step 3: Generate candidate values at Huffman category boundaries.
        * Candidates: 1, 3, 7, 15, ... (largest in each category), then qval */
       num_candidates = JPEG_NBITS(qval);
+      if (num_candidates > max_ac_candidates)
+        num_candidates = max_ac_candidates;
       for (k = 0; k < num_candidates; k++) {
         int delta;
         candidate[k] = (k < num_candidates - 1) ? (2 << k) - 1 : qval;
@@ -1761,8 +1811,12 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
 
       accumulated_cost[i] = COST_INFINITY;
 
-      /* Step 4: Search for optimal path - try all valid predecessor positions */
-      for (j = Ss-1; j < i; j++) {
+      /* Step 4: Search for optimal path - try valid predecessor positions.
+       * Limit lookback distance for high-entropy blocks (speed optimization). */
+      {
+        int j_start = i - max_lookback;
+        if (j_start < Ss - 1) j_start = Ss - 1;
+        for (j = j_start; j < i; j++) {
         int zz = jpeg_natural_order[j];
 
         /* Only consider paths from:
@@ -1806,6 +1860,7 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
           }
         }
       }
+      } /* end of lookback limit block */
     }
 
     /* ===== End-of-Block Optimization =====
