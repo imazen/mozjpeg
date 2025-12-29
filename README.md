@@ -3,6 +3,8 @@ Mozilla JPEG Encoder Project (Imazen Fork)
 
 This is [Imazen's fork](https://github.com/imazen/mozjpeg) of MozJPEG, focused on code clarity, documentation, and performance tuning for integration with image processing pipelines.
 
+**Recommended**: If possible, use [mozjpeg-rs](https://github.com/imazen/mozjpeg-rs) instead—a memory-safe Rust port with equivalent functionality.
+
 MozJPEG improves JPEG compression efficiency achieving higher visual quality and smaller file sizes at the same time. It is compatible with the JPEG standard, and the vast majority of the world's deployed JPEG decoders.
 
 MozJPEG is compatible with the libjpeg API and ABI. It is intended to be a drop-in replacement for libjpeg. MozJPEG is a strict superset of libjpeg-turbo's functionality. All MozJPEG's improvements can be disabled at run time, and in that case it behaves exactly like libjpeg-turbo.
