@@ -208,8 +208,8 @@ Integer Extension Parameters Supported by mozjpeg
   count exceeds a threshold (which decreases as level increases), the
   predecessor search and candidate generation are limited.
 
-  Quality impact is negligible even at level 10 (max DSSIM difference
-  ~0.000004 on test images).
+  Quality impact is negligible even at level 10 (worst-case DSSIM delta
+  ~0.00001 vs level 0, adding ~15% to baseline Q100 DSSIM of ~0.00007).
 
   Example usage:
     jpeg_c_set_int_param(cinfo, JINT_TRELLIS_SPEED_LEVEL, 10);  /* fast */

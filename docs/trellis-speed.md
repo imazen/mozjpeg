@@ -88,7 +88,24 @@ max_ac_candidates = 9 - (level + 1) / 2  (minimum: 2)
 | kodak/13 | 0.00000870 |
 | kodak/19 | 0.00001202 |
 
-All values are well below 0.0001 (generally considered imperceptible).
+### Baseline Q100 DSSIM (vs Original)
+
+For context, here is the DSSIM of Q100 compression itself (comparing compressed
+output to uncompressed original), using default speed level 7:
+
+| Image | Q100 vs Original | Speed Delta (L10-L0) | Delta as % of Baseline |
+|-------|------------------|----------------------|------------------------|
+| kodak/1 | 0.00005183 | 0.00000915 | 18% |
+| kodak/5 | 0.00003983 | 0.00000684 | 17% |
+| kodak/8 | 0.00003917 | 0.00000604 | 15% |
+| kodak/13 | 0.00003733 | 0.00000870 | 23% |
+| kodak/19 | 0.00007556 | 0.00001202 | 16% |
+
+**Full Kodak corpus at Q100:** mean DSSIM 0.00007, range 0.00004-0.00009
+
+The speed optimization's worst-case impact (~0.00001) adds roughly 15-20%
+additional DSSIM on top of the baseline compression loss. Both values remain
+well below 0.0001 (generally considered imperceptible).
 
 ## Why Level 10 is the Maximum
 
