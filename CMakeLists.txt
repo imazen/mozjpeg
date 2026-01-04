@@ -721,6 +721,9 @@ if(ENABLE_STATIC)
   if(NOT MSVC_LIKE)
     set_target_properties(jpeg-static PROPERTIES OUTPUT_NAME jpeg)
   endif()
+  if(UNIX)
+    target_link_libraries(jpeg-static m)
+  endif()
 endif()
 
 if(WITH_TURBOJPEG)
@@ -834,7 +837,7 @@ endif()
 if(ENABLE_STATIC)
   if(WITH_TOOLS)
     add_executable(cjpeg-static src/cjpeg.c src/cdjpeg.c src/rdbmp.c
-      src/rdgif.c
+      src/rdgif.c src/rdjpeg.c
       src/wrapper/rdppm-8.c src/wrapper/rdppm-12.c src/wrapper/rdppm-16.c
       src/rdswitch.c src/rdtarga.c)
     set_property(TARGET cjpeg-static PROPERTY COMPILE_FLAGS
