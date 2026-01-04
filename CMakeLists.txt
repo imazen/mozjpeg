@@ -660,7 +660,7 @@ set(JPEG_SOURCES src/jcapimin.c
   src/jdphuff.c
   src/wrapper/jdpostct-8.c src/wrapper/jdpostct-12.c src/wrapper/jdpostct-16.c
   src/wrapper/jdsample-8.c src/wrapper/jdsample-12.c src/wrapper/jdsample-16.c
-  src/jdtrans.c src/jerror.c src/jfdctflt.c
+  src/jdtrans.c src/jerror.c src/jcext.c src/jfdctflt.c
   src/wrapper/jfdctfst-8.c src/wrapper/jfdctfst-12.c
   src/wrapper/jfdctint-8.c src/wrapper/jfdctint-12.c
   src/wrapper/jidctflt-8.c src/wrapper/jidctflt-12.c
