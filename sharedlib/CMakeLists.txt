@@ -91,7 +91,7 @@ if(WITH_TOOLS)
     "-DBMP_SUPPORTED -DGIF_SUPPORTED -DPPM_SUPPORTED -DTARGA_SUPPORTED ${USE_SETMODE}")
 
   add_executable(cjpeg ../src/cjpeg.c ../src/cdjpeg.c ../src/rdbmp.c
-    ../src/rdgif.c
+    ../src/rdgif.c ../src/rdjpeg.c
     ../src/wrapper/rdppm-8.c ../src/wrapper/rdppm-12.c
     ../src/wrapper/rdppm-16.c
     ../src/rdswitch.c ../src/rdtarga.c)
