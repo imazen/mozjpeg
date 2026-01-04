@@ -64,6 +64,9 @@ if(MAPFLAG)
   set_target_properties(jpeg PROPERTIES
     LINK_FLAGS "${MAPFLAG}${CMAKE_CURRENT_BINARY_DIR}/../libjpeg.map")
 endif()
+if(UNIX)
+  target_link_libraries(jpeg m)
+endif()
 if(MSVC_LIKE)
   set_target_properties(jpeg PROPERTIES
     RUNTIME_OUTPUT_NAME jpeg${SO_MAJOR_VERSION})

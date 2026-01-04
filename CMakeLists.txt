@@ -765,6 +765,9 @@ if(WITH_TURBOJPEG)
       set_target_properties(turbojpeg PROPERTIES
         LINK_FLAGS "${TJMAPFLAG}${TJMAPFILE}")
     endif()
+    if(UNIX)
+      target_link_libraries(turbojpeg m)
+    endif()
 
     if(WITH_TESTS)
       add_executable(tjunittest src/tjunittest.c src/tjutil.c src/md5/md5.c
@@ -799,6 +802,9 @@ if(WITH_TURBOJPEG)
       "-DBMP_SUPPORTED -DPPM_SUPPORTED")
     if(NOT MSVC_LIKE)
       set_target_properties(turbojpeg-static PROPERTIES OUTPUT_NAME turbojpeg)
+    endif()
+    if(UNIX)
+      target_link_libraries(turbojpeg-static m)
     endif()
 
     if(WITH_TESTS)
