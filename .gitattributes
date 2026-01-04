@@ -1,7 +1,7 @@
-/appveyor.yml export-ignore
 /.gitattributes export-ignore
 /.github export-ignore
 *.ppm binary
+*.pgm binary
 /ChangeLog.md conflict-marker-size=8
 
 # Locked test reference outputs (Git LFS)

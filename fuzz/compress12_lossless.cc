@@ -1,5 +1,5 @@
 /*
- * Copyright (C)2021-2024 D. R. Commander.  All Rights Reserved.
+ * Copyright (C)2021-2025 D. R. Commander.  All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -26,7 +26,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <turbojpeg.h>
+#include "../src/turbojpeg.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -39,7 +39,7 @@
 
 struct test {
   enum TJPF pf;
-  int psv, pt;
+  int precision, psv, pt;
 };
 
 
@@ -48,16 +48,16 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
   tjhandle handle = NULL;
   short *srcBuf = NULL;
   unsigned char *dstBuf = NULL;
-  int width = 0, height = 0, fd = -1, i, ti;
+  int width = 0, height = 0, fd = -1, ti;
   char filename[FILENAME_MAX] = { 0 };
   struct test tests[NUMTESTS] = {
-    { TJPF_RGB, 1, 0 },
-    { TJPF_BGR, 2, 2 },
-    { TJPF_RGBX, 3, 4 },
-    { TJPF_BGRA, 4, 7 },
-    { TJPF_XRGB, 5, 5 },
-    { TJPF_GRAY, 6, 3 },
-    { TJPF_CMYK, 7, 0 }
+    { TJPF_RGB, 12, 1, 0 },
+    { TJPF_BGR, 11, 2, 2 },
+    { TJPF_RGBX, 10, 3, 4 },
+    { TJPF_BGRA, 9, 4, 7 },
+    { TJPF_XRGB, 12, 5, 5 },
+    { TJPF_GRAY, 12, 6, 3 },
+    { TJPF_CMYK, 12, 7, 0 }
   };
 
   snprintf(filename, FILENAME_MAX, "/tmp/libjpeg-turbo_compress_fuzz.XXXXXX");
@@ -68,12 +68,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     goto bailout;
 
   for (ti = 0; ti < NUMTESTS; ti++) {
-    int sum = 0, pf = tests[ti].pf;
-    size_t dstSize = 0, maxBufSize;
+    int pf = tests[ti].pf;
+    size_t dstSize = 0, maxBufSize, i, sum = 0;
 
     /* Test non-default compression options on specific iterations. */
     tj3Set(handle, TJPARAM_BOTTOMUP, ti == 0);
     tj3Set(handle, TJPARAM_NOREALLOC, ti != 2);
+    tj3Set(handle, TJPARAM_PRECISION, tests[ti].precision);
     tj3Set(handle, TJPARAM_RESTARTROWS, ti == 0 || ti == 6 ? 1 : 0);
 
     tj3Set(handle, TJPARAM_MAXPIXELS, 1048576);
@@ -83,9 +84,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                                  &pf)) == NULL)
       continue;
 
-    maxBufSize = tj3JPEGBufSize(width, height, TJSAMP_444);
+    dstSize = maxBufSize = tj3JPEGBufSize(width, height, TJSAMP_444);
     if (tj3Get(handle, TJPARAM_NOREALLOC)) {
-      if ((dstBuf = (unsigned char *)tj3Alloc(maxBufSize)) == NULL)
+      if ((dstBuf = (unsigned char *)tj3Alloc(dstSize)) == NULL)
         goto bailout;
     } else
       dstBuf = NULL;

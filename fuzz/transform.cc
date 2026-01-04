@@ -1,5 +1,5 @@
 /*
- * Copyright (C)2021-2024 D. R. Commander.  All Rights Reserved.
+ * Copyright (C)2021-2025 D. R. Commander.  All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -26,7 +26,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <turbojpeg.h>
+#include "../src/turbojpeg.h"
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -36,8 +36,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
   tjhandle handle = NULL;
   unsigned char *dstBufs[1] = { NULL };
-  size_t dstSizes[1] = { 0 }, maxBufSize;
-  int width = 0, height = 0, jpegSubsamp, dstSubsamp, i;
+  size_t dstSizes[1] = { 0 }, maxBufSize, i;
+  int width = 0, height = 0, jpegSubsamp;
   tjtransform transforms[1];
 
   if ((handle = tj3Init(TJINIT_TRANSFORM)) == NULL)
@@ -69,19 +69,17 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
   transforms[0].op = TJXOP_NONE;
   transforms[0].options = TJXOPT_PROGRESSIVE | TJXOPT_COPYNONE;
-  dstBufs[0] =
-    (unsigned char *)tj3Alloc(tj3JPEGBufSize(width, height, jpegSubsamp));
-  if (!dstBufs[0])
+  dstSizes[0] = maxBufSize = tj3TransformBufSize(handle, &transforms[0]);
+  if (dstSizes[0] == 0 ||
+      (dstBufs[0] = (unsigned char *)tj3Alloc(dstSizes[0])) == NULL)
     goto bailout;
-
-  maxBufSize = tj3JPEGBufSize(width, height, jpegSubsamp);
 
   tj3Set(handle, TJPARAM_NOREALLOC, 1);
   if (tj3Transform(handle, data, size, 1, dstBufs, dstSizes,
                    transforms) == 0) {
     /* Touch all of the output pixels in order to catch uninitialized reads
        when using MemorySanitizer. */
-    int sum = 0;
+    size_t sum = 0;
 
     for (i = 0; i < dstSizes[0]; i++)
       sum += dstBufs[0][i];
@@ -100,17 +98,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
   transforms[0].op = TJXOP_TRANSPOSE;
   transforms[0].options = TJXOPT_GRAY | TJXOPT_CROP | TJXOPT_COPYNONE |
                           TJXOPT_OPTIMIZE;
-  dstBufs[0] =
-    (unsigned char *)tj3Alloc(tj3JPEGBufSize((height + 1) / 2, (width + 1) / 2,
-                                             TJSAMP_GRAY));
-  if (!dstBufs[0])
+  dstSizes[0] = maxBufSize = tj3TransformBufSize(handle, &transforms[0]);
+  if (dstSizes[0] == 0 ||
+      (dstBufs[0] = (unsigned char *)tj3Alloc(dstSizes[0])) == NULL)
     goto bailout;
-
-  maxBufSize = tj3JPEGBufSize((height + 1) / 2, (width + 1) / 2, TJSAMP_GRAY);
 
   if (tj3Transform(handle, data, size, 1, dstBufs, dstSizes,
                    transforms) == 0) {
-    int sum = 0;
+    size_t sum = 0;
 
     for (i = 0; i < dstSizes[0]; i++)
       sum += dstBufs[0][i];
@@ -124,21 +119,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
   transforms[0].op = TJXOP_ROT90;
   transforms[0].options = TJXOPT_TRIM | TJXOPT_ARITHMETIC;
-  dstSubsamp = jpegSubsamp;
-  if (dstSubsamp == TJSAMP_422) dstSubsamp = TJSAMP_440;
-  else if (dstSubsamp == TJSAMP_440) dstSubsamp = TJSAMP_422;
-  else if (dstSubsamp == TJSAMP_411) dstSubsamp = TJSAMP_441;
-  else if (dstSubsamp == TJSAMP_441) dstSubsamp = TJSAMP_411;
-  dstBufs[0] =
-    (unsigned char *)tj3Alloc(tj3JPEGBufSize(height, width, dstSubsamp));
-  if (!dstBufs[0])
+  dstSizes[0] = maxBufSize = tj3TransformBufSize(handle, &transforms[0]);
+  if (dstSizes[0] == 0 ||
+      (dstBufs[0] = (unsigned char *)tj3Alloc(dstSizes[0])) == NULL)
     goto bailout;
-
-  maxBufSize = tj3JPEGBufSize(height, width, dstSubsamp);
 
   if (tj3Transform(handle, data, size, 1, dstBufs, dstSizes,
                    transforms) == 0) {
-    int sum = 0;
+    size_t sum = 0;
 
     for (i = 0; i < dstSizes[0]; i++)
       sum += dstBufs[0][i];
@@ -157,7 +145,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
   tj3Set(handle, TJPARAM_NOREALLOC, 0);
   if (tj3Transform(handle, data, size, 1, dstBufs, dstSizes,
                    transforms) == 0) {
-    int sum = 0;
+    size_t sum = 0;
 
     for (i = 0; i < dstSizes[0]; i++)
       sum += dstBufs[0][i];

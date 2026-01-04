@@ -43,6 +43,7 @@ configure_file(release/makerpm.in pkgscripts/makerpm)
 configure_file(release/rpm.spec.in pkgscripts/rpm.spec @ONLY)
 
 add_custom_target(rpm pkgscripts/makerpm
+  DEPENDS rdjpgcom wrjpgcom cjpeg djpeg jpegtran
   SOURCES pkgscripts/makerpm)
 
 configure_file(release/makesrpm.in pkgscripts/makesrpm)
@@ -81,9 +82,17 @@ endif()
 
 if(BITS EQUAL 64)
   set(INST_PLATFORM "${INST_PLATFORM} 64-bit")
-  set(INST_NAME ${INST_NAME}64)
+  if(CPU_TYPE STREQUAL "arm64")
+    set(INST_NAME ${INST_NAME}-arm64)
+  elseif(CPU_TYPE STREQUAL "x86_64")
+    set(INST_NAME ${INST_NAME}-x64)
+  else()
+    set(INST_NAME ${INST_NAME}64)
+  endif()
   set(INST_REG_NAME ${INST_REG_NAME}64)
   set(INST_DEFS ${INST_DEFS} -DWIN64)
+elseif(CPU_TYPE STREQUAL "i386")
+  set(INST_NAME ${INST_NAME}-x86)
 endif()
 
 if(WITH_JAVA)
