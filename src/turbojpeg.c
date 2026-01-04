@@ -384,16 +384,16 @@ static void setCompDefaults(tjinstance *this, int pixelFormat, boolean yuv)
 #endif
   this->cinfo.arith_code = this->arithmetic;
 
-  this->cinfo.comp_info[0].h_samp_factor = tjMCUWidth[subsamp] / 8;
+  this->cinfo.comp_info[0].h_samp_factor = tjMCUWidth[this->subsamp] / 8;
   this->cinfo.comp_info[1].h_samp_factor = 1;
   this->cinfo.comp_info[2].h_samp_factor = 1;
   if (this->cinfo.num_components > 3)
-    this->cinfo.comp_info[3].h_samp_factor = tjMCUWidth[subsamp] / 8;
-  this->cinfo.comp_info[0].v_samp_factor = tjMCUHeight[subsamp] / 8;
+    this->cinfo.comp_info[3].h_samp_factor = tjMCUWidth[this->subsamp] / 8;
+  this->cinfo.comp_info[0].v_samp_factor = tjMCUHeight[this->subsamp] / 8;
   this->cinfo.comp_info[1].v_samp_factor = 1;
   this->cinfo.comp_info[2].v_samp_factor = 1;
   if (this->cinfo.num_components > 3)
-    this->cinfo.comp_info[3].v_samp_factor = tjMCUHeight[subsamp] / 8;
+    this->cinfo.comp_info[3].v_samp_factor = tjMCUHeight[this->subsamp] / 8;
 }
 
 
