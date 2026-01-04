@@ -369,7 +369,7 @@ static void setCompDefaults(tjinstance *this, int pixelFormat, boolean yuv)
   case TJCS_YCCK:
     jpeg_set_colorspace(&this->cinfo, JCS_YCCK);  break;
   default:
-    if (subsamp == TJSAMP_GRAY)
+    if (this->subsamp == TJSAMP_GRAY)
       jpeg_set_colorspace(&this->cinfo, JCS_GRAYSCALE);
     else if (pixelFormat == TJPF_CMYK)
       jpeg_set_colorspace(&this->cinfo, JCS_YCCK);
