@@ -668,7 +668,7 @@ set(JPEG_SOURCES src/jcapimin.c
   src/wrapper/jidctint-8.c src/wrapper/jidctint-12.c
   src/wrapper/jidctred-8.c src/wrapper/jidctred-12.c
   src/jmemmgr.c src/jmemnobs.c src/jpeg_nbits.c
-  mozjpeg_test_exports.c
+  src/mozjpeg_test_exports.c
   src/wrapper/jquant1-8.c src/wrapper/jquant1-12.c
   src/wrapper/jquant2-8.c src/wrapper/jquant2-12.c
   src/wrapper/jutils-8.c src/wrapper/jutils-12.c src/wrapper/jutils-16.c)
