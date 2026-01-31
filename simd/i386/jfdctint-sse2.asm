@@ -457,8 +457,8 @@ EXTN(jsimd_fdct_islow_sse2):
     psubw       xmm6, xmm4              ; xmm6=tmp12
 
     movdqa      xmm5, xmm7
-    paddw       xmm7, xmm2              ; xmm7=tmp10+tmp11
-    psubw       xmm5, xmm2              ; xmm5=tmp10-tmp11
+    paddsw      xmm7, xmm2              ; xmm7=tmp10+tmp11
+    psubsw      xmm5, xmm2              ; xmm5=tmp10-tmp11
 
     paddw       xmm7, [GOTOFF(ebx,PW_DESCALE_P2X)]
     paddw       xmm5, [GOTOFF(ebx,PW_DESCALE_P2X)]
