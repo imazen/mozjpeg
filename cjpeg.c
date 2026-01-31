@@ -247,6 +247,7 @@ usage(void)
   fprintf(stderr, "  -notrellis     Disable trellis optimization\n");
   fprintf(stderr, "  -trellis-dc    Enable trellis optimization of DC coefficients (default)\n");
   fprintf(stderr, "  -notrellis-dc  Disable trellis optimization of DC coefficients\n");
+  fprintf(stderr, "  -trellis-speed N  Trellis speed level 0-10 (0=thorough, 7=default, 10=fast)\n");
   fprintf(stderr, "  -tune-psnr     Tune trellis optimization for PSNR\n");
   fprintf(stderr, "  -tune-hvs-psnr Tune trellis optimization for PSNR-HVS (default)\n");
   fprintf(stderr, "  -tune-ssim     Tune trellis optimization for SSIM\n");
@@ -674,7 +675,15 @@ parse_switches(j_compress_ptr cinfo, int argc, char **argv,
     } else if (keymatch(arg, "trellis-dc", 9)) {
       /* enable DC trellis quantization */
       jpeg_c_set_bool_param(cinfo, JBOOLEAN_TRELLIS_QUANT_DC, TRUE);
-      
+
+    } else if (keymatch(arg, "trellis-speed", 13)) {
+      /* set trellis speed level (0=thorough, 10=fast) */
+      if (++argn >= argc) {
+        fprintf(stderr, "%s: missing argument for trellis-speed\n", progname);
+        usage();
+      }
+      jpeg_c_set_int_param(cinfo, JINT_TRELLIS_SPEED_LEVEL, atoi(argv[argn]));
+
     } else if (keymatch(arg, "tune-psnr", 6)) {
       jpeg_c_set_int_param(cinfo, JINT_BASE_QUANT_TBL_IDX, 1);
       jpeg_c_set_float_param(cinfo, JFLOAT_LAMBDA_LOG_SCALE1, 9.0);

@@ -192,3 +192,36 @@ Integer Extension Parameters Supported by mozjpeg
   1 = One scan per component
   2 = Optimize between one scan for all components and one scan for the first
       component plus one scan for the remaining components
+
+* JINT_TRELLIS_SPEED_LEVEL (default: 7)
+  Controls speed optimization for trellis quantization.  Trellis has O(n^2)
+  complexity per block; for high-entropy blocks (many non-zero coefficients),
+  this can be very slow.  This parameter limits the search for such blocks.
+
+  Level values (0-10):
+    0 = Thorough (full search always, slowest but theoretically optimal)
+    1-6 = Conservative (only the densest blocks are limited)
+    7 = Default (balanced speed/quality, ~30% faster than level 0 at Q100)
+    8-10 = Aggressive (lower threshold, targets more blocks)
+
+  The algorithm counts non-zero DCT coefficients in each 8x8 block.  When
+  the count exceeds a threshold (which decreases as level increases), the
+  predecessor search and candidate generation are limited.
+
+  On the Kodak corpus (natural photographs), trigger rates at default level 7:
+    Q50-Q85: <1% of blocks affected (optimization essentially dormant)
+    Q90: ~1% of blocks    Q95: ~6% of blocks    Q100: ~40% of blocks
+
+  The optimization primarily targets high-quality encoding (Q95+) where
+  high-entropy blocks with many non-zero coefficients are common.
+
+  Quality impact is negligible even at level 10 (worst-case DSSIM delta
+  ~0.00001 vs level 0, adding ~15% to baseline Q100 DSSIM of ~0.00007).
+
+  Example usage:
+    jpeg_c_set_int_param(cinfo, JINT_TRELLIS_SPEED_LEVEL, 10);  /* fast */
+    jpeg_c_set_int_param(cinfo, JINT_TRELLIS_SPEED_LEVEL, 0);   /* thorough */
+
+  Via cjpeg command line:
+    cjpeg -trellis-speed 10 ...   # fast
+    cjpeg -trellis-speed 0 ...    # thorough

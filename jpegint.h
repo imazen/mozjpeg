@@ -118,6 +118,7 @@ struct jpeg_comp_master {
   int quant_tbl_master_idx; /* Quantization table master index */
   int trellis_freq_split; /* splitting point for frequency in trellis quantization */
   int trellis_num_loops; /* number of trellis loops */
+  int trellis_speed_level; /* speed optimization 0-10 (0=thorough, 10=fast) */
 
   int num_scans_luma; /* # of entries in scan_info array pertaining to luma (used when optimize_scans is TRUE */
   int num_scans_luma_dc;

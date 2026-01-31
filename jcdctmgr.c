@@ -1117,6 +1117,48 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
       }
     }
 
+    /* Speed optimization: limit trellis search for high-entropy blocks.
+     * Trellis quantization has O(n^2) complexity per block due to the
+     * predecessor search. For blocks with many non-zero coefficients
+     * (common at high quality), we limit the search to maintain performance
+     * with negligible quality impact.
+     *
+     * Controlled by trellis_speed_level (0-10):
+     *   0 = thorough (full search, slowest but optimal)
+     *   7 = default (balanced speed/quality)
+     *  10 = fast (targets more high-entropy blocks)
+     */
+    {
+      int max_lookback = 63;      /* default: full search */
+      int max_ac_candidates = 16; /* default: all candidates */
+      int speed_level = cinfo->master->trellis_speed_level;
+
+      if (speed_level > 0) {
+        int nonzero_count = 0;
+        for (i = Ss; i <= Se; i++) {
+          int z = jpeg_natural_order[i];
+          int x = abs(src[bi][z]);
+          int q = 8 * qtbl->quantval[z];
+          if ((x + q/2) / q > 0) nonzero_count++;
+        }
+        /* Threshold decreases as level increases (more blocks affected)
+         * Level 1: threshold=58, Level 7: threshold=40, Level 10: threshold=31
+         */
+        {
+          int threshold = 61 - speed_level * 3;
+          if (nonzero_count > threshold) {
+            /* Lookback: decreases as level increases
+             * Level 1: 24, Level 7: 12, Level 10: 6 */
+            max_lookback = 26 - speed_level * 2;
+            if (max_lookback < 4) max_lookback = 4;
+            /* Candidates: decreases as level increases
+             * Level 1: 8, Level 7: 5, Level 10: 3 */
+            max_ac_candidates = 9 - (speed_level + 1) / 2;
+            if (max_ac_candidates < 2) max_ac_candidates = 2;
+          }
+        }
+      }
+
     /* Do AC coefficients */
     for (i = Ss; i <= Se; i++) {
       int z = jpeg_natural_order[i];
@@ -1129,7 +1171,7 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
       float candidate_dist[16];
       int num_candidates;
       int qval;
-      
+
       accumulated_zero_dist[i] = x * x * lambda * lambda_tbl[z] + accumulated_zero_dist[i-1];
       
       qval = (x + q/2) / q; /* quantized value (round nearest) */
@@ -1144,6 +1186,8 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
         qval = (1<<max_coef_bits)-1;
       
       num_candidates = JPEG_NBITS(qval);
+      if (num_candidates > max_ac_candidates)
+        num_candidates = max_ac_candidates;
       for (k = 0; k < num_candidates; k++) {
         int delta;
         candidate[k] = (k < num_candidates - 1) ? (2 << k) - 1 : qval;
@@ -1151,18 +1195,22 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
         candidate_bits[k] = k+1;
         candidate_dist[k] = delta * delta * lambda * lambda_tbl[z];
       }
-      
+
       accumulated_cost[i] = 1e38;
-      
-      for (j = Ss-1; j < i; j++) {
+
+      /* Limit lookback distance for high-entropy blocks (speed optimization) */
+      {
+        int j_start = i - max_lookback;
+        if (j_start < Ss - 1) j_start = Ss - 1;
+        for (j = j_start; j < i; j++) {
         int zz = jpeg_natural_order[j];
         if (j != Ss-1 && coef_blocks[bi][zz] == 0)
           continue;
-        
+
         zero_run = i - 1 - j;
         if ((zero_run >> 4) && actbl->ehufsi[0xf0] == 0)
           continue;
-        
+
         run_bits = (zero_run >> 4) * actbl->ehufsi[0xf0];
         zero_run &= 15;
 
@@ -1170,11 +1218,11 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
           int coef_bits = actbl->ehufsi[16 * zero_run + candidate_bits[k]];
           if (coef_bits == 0)
             continue;
-          
+
           rate = coef_bits + candidate_bits[k] + run_bits;
           cost = rate + candidate_dist[k];
           cost += accumulated_zero_dist[i-1] - accumulated_zero_dist[j] + accumulated_cost[j];
-          
+
           if (cost < accumulated_cost[i]) {
             coef_blocks[bi][z] = (candidate[k] ^ sign) - sign;
             accumulated_cost[i] = cost;
@@ -1182,8 +1230,10 @@ quantize_trellis(j_compress_ptr cinfo, c_derived_tbl *dctbl, c_derived_tbl *actb
           }
         }
       }
+      } /* end lookback limit block */
     }
-    
+    } /* end speed optimization block */
+
     last_coeff_idx = Ss-1;
     best_cost = accumulated_zero_dist[Se] + actbl->ehufsi[0];
     cost_all_zeros = accumulated_zero_dist[Se];
